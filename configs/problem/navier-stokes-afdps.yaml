@@ -1,0 +1,31 @@
+name: navier-stokes-afdps-ds2
+prior: checkpoints/ns-5m.pt
+model:
+  _target_: inverse_problems.navier_stokes_afdps.AFDPSNavierStokes2d
+  forward_time: 1.0
+  Re: 200.0
+  resolution: 128
+  downsample_factor: 2
+  sigma_noise: 0.0
+  unnorm_scale: 10.0
+  adaptive: False   # REQUIRED: fixed dt -> fixed-length differentiable trajectory for the adjoint
+  delta_t: 0.002    # fixed time step (sub-CFL at Re=200); must match data-generation stability
+  hutchinson_M: 1       # # Rademacher probes for the likelihood Laplacian (anneal/raise via sweep)
+  hutchinson_eps: 1.0e-3
+  hutchinson_scheme: central   # 'central' (O(eps^2), 2M solves) | 'forward' (O(eps), M solves, reuses drift grad)
+  grad_chunk: 16        # particles per adjoint sub-solve; raise on GPU to fill the device (memory-bound)
+  sigma_floor: 1.0e-3   # floor for measurement noise sigma (avoids 1/sigma^2 blow-up at sigma=0)
+  adjoint_mode: autodiff   # 'autodiff' (discrete adjoint) | 'continuous' (mentor's PDE, O(dt) check)
+  init_mode: zeros
+
+data:
+  _target_: training.dataset.LMDBData
+  root: ../data/navier-stokes-test/Re200.0-t5.0
+  resolution: 128
+  std: 5.0
+  id_list: 0-9
+
+evaluator:
+  _target_: eval.NavierStokes2d
+
+exp_dir: exps/inference/navier-stokes-afdps-ds2

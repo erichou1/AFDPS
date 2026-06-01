@@ -1,0 +1,24 @@
+[project]
+name = "afdps-ns"
+version = "0.1.0"
+description = "AFDPS (Approximation-Free Diffusion Posterior Sampling) applied to the InverseBench 2D Navier-Stokes inverse problem, with an adjoint-state gradient + Hutchinson-estimated likelihood Laplacian."
+readme = "README.md"
+requires-python = ">=3.9"
+
+# NS (Track B) + verification (Track A) subset of InverseBench's dependencies.
+# The domain-specific solvers for FWI / black-hole / MRI (devito, ehtim, fastmri,
+# sigpy, codepy, dask, distributed) are intentionally omitted -- restore them from
+# env.yaml / README_InverseBench.md if you run those problems.
+dependencies = [
+    "torch>=2.4.0",
+    "torchvision>=0.19.0",
+    "hydra-core>=1.3.2",
+    "omegaconf>=2.3.0",
+    "lmdb>=1.4.0",
+    "numpy>=1.24.0",
+    "tqdm>=4.66.0",
+    "wandb>=0.16.0",
+    "pyyaml>=6.0",
+    "piq>=0.8.0",
+    "pytest>=8.0.0",
+]

@@ -1,0 +1,16 @@
+name: AFDPS
+method:
+  _target_: algo.afdps.AFDPS
+  num_particles: 16        # ensemble size (batched on GPU)
+  num_steps: 200           # annealed-SDE / diffusion steps
+  sigma_min: 0.002
+  sigma_max: 80.0
+  rho: 7                   # EDM time discretization exponent
+  discretization: edm
+  schedule: linear
+  scaling: none
+  mode: sde
+  likelihood_at: denoised  # evaluate likelihood at the Tweedie estimate (required for nonlinear NS)
+  guidance_gamma: 1.0      # annealed-guidance strength; smaller -> stronger/earlier data fit
+  prior: diffusion         # 'diffusion' (ns-5m.pt) | 'gaussian' (analytic GRF, Track A only)
+  reduce: best             # 'best' | 'mean' | 'topk' (how the ensemble collapses to samples)

@@ -1,0 +1,45 @@
+program: main.py
+project: SIPBench
+name: navier-stokes-afdps
+method: bayes
+metric:
+  goal: minimize
+  # Must match a key actually logged on the AFDPS path. main.py logs evaluator.compute(),
+  # i.e. eval.NavierStokes2d -> {'relative l2', 'relative l2_std'}. (The baselines log
+  # 'data_fitting_loss' from inside their own inference loops; AFDPS does not.)
+  name: "relative l2"
+parameters:
+  algorithm.method.num_particles:
+    values: [8, 16, 32, 64]
+  algorithm.method.num_steps:
+    values: [100, 200, 400]
+  algorithm.method.guidance_gamma:   # KEY knob: must be tuned to the data scale
+    distribution: log_uniform_values
+    min: 0.5
+    max: 50.0
+  algorithm.method.sigma_max:
+    values: [40.0, 80.0]
+  problem.model.hutchinson_M:
+    values: [1, 2, 4]
+  problem.model.hutchinson_scheme:
+    values: ["central", "forward"]   # 'forward' halves Laplacian solves (O(eps) vs O(eps^2))
+
+# NOTE: no hyperband early_terminate -- 'relative l2' is logged once per run (main.py:122),
+# so there is no intermediate signal to prune on. Bayes optimizes the final value. To enable
+# mid-run pruning, log a per-step ensemble data-misfit inside AFDPS.inference under `if wandb.run`.
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - problem=navier-stokes-afdps                   # AFDPS forward operator (adjoint-enabled)
+  - problem.model.adaptive=False                  # fixed dt for the adjoint
+  - problem.data.root="../data/navier-stokes-val/Re200.0-t5.0"
+  - algorithm=afdps
+  - pretrain=navier-stokes
+  - wandb=True
+  - problem.data.id_list="0-0"
+  # Grid sweep over the benchmark settings is run separately by overriding:
+  #   problem.model.downsample_factor in {2,4,8}
+  #   problem.model.sigma_noise       in {0.0,1.0,2.0}
+  - ${args_no_hyphens}
