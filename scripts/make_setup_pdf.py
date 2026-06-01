@@ -26,7 +26,9 @@ body("This guide takes you from a fresh GPU box to a first benchmark number and 
      "Navier-Stokes inverse problem). The numerical core is already built and verified on CPU "
      "(15/15 checks); the remaining work is GPU setup, asset download, and running Track B.")
 space()
-body("Repo: /Users/eric/workspace/AFDPS/afdps-ns    (copy this whole folder to the GPU box)")
+body("GitHub: https://github.com/erichou1/AFDPS   (public -- clone it directly on the GPU box; "
+     "no copying from a laptop). NOTE: on GitHub the repo is named AFDPS and the files are at the "
+     "ROOT -- there is no 'afdps-ns' subfolder (that is only the local clone-directory name).")
 body("Goal: beat the InverseBench baselines on relative-L2 -- EnKG ~ 0.12, DPG ~ 0.32 "
      "(x2 subsampling, sigma=0).")
 
@@ -49,18 +51,23 @@ bullet("~5-10 GB disk for the checkpoint + datasets. Internet access to GitHub +
 bullet("(Optional) a Weights & Biases account for the sweep (wandb login).")
 
 rule()
-h1("Step 1 -- Get the repo onto the GPU box")
-num("1. Copy the repo folder to the GPU box (rsync/scp/git). Example with rsync:")
-code("rsync -av /Users/eric/workspace/AFDPS/afdps-ns/  user@gpubox:~/afdps-ns/")
-num("2. Do NOT copy the local CPU venv (.venv-dev); you will build a fresh GPU env there.")
-num("3. On the GPU box:  cd ~/afdps-ns")
+h1("Step 1 -- Get the repo onto the GPU box (git clone)")
+body("The project is on GitHub (public), so you do NOT copy anything from your laptop. On the "
+     "GPU box, just clone it:")
+code("git clone https://github.com/erichou1/AFDPS.git\n"
+     "cd AFDPS")
+body("This gives you a folder 'AFDPS' containing the whole project (main.py, algo/, "
+     "inverse_problems/, configs/, verification/, SETUP_GUIDE.pdf, ...). If the repo is later made "
+     "private, authenticate first (gh auth login, or an SSH key / personal access token on the box).")
+body("Large assets are intentionally NOT in git (.gitignore excludes checkpoints/ and data/) -- "
+     "you download those in Step 3. To pull later updates: git pull.")
 
 rule()
 h1("Step 2 -- Python environment")
 body("Two options. Use whichever your cluster prefers. Option A (uv) matches InverseBench.")
 h2("Option A: uv (recommended)")
 code("curl -LsSf https://astral.sh/uv/install.sh | sh   # if uv is not installed\n"
-     "cd ~/afdps-ns\n"
+     "cd AFDPS                                          # the cloned repo\n"
      "uv sync          # installs the NS-focused deps from pyproject.toml\n"
      "source .venv/bin/activate")
 h2("Option B: pip / conda")
@@ -90,7 +97,8 @@ body("  https://data.caltech.edu/records/jfdr4-6ws87")
 body("Extract so these paths exist RELATIVE TO THE REPO (a sibling 'data' directory):")
 code("../data/navier-stokes-test/Re200.0-t5.0    # 10 test samples\n"
      "../data/navier-stokes-val/Re200.0-t5.0     # 1 validation sample (for the sweep)")
-body("i.e. from ~/afdps-ns the data lives at ~/data/... . These paths are what the configs "
+body("i.e. the 'data' directory is a SIBLING of the cloned AFDPS folder (../data/... from inside "
+     "the repo). These relative paths are what the configs "
      "(configs/problem/navier-stokes-afdps.yaml, the sweep yaml) already point to.")
 
 rule()

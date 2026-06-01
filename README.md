@@ -30,11 +30,17 @@ verification/                              Track A harness + numerical verificat
 ## Install
 
 ```bash
+# Clone (public repo) -- works on any machine, including the GPU box:
+git clone https://github.com/erichou1/AFDPS.git
+cd AFDPS
+
 # CPU dev / verification (Track A + ladder run fine on CPU):
 python -m venv .venv && source .venv/bin/activate
 pip install torch numpy pyyaml tqdm omegaconf hydra-core
-# Full env (GPU box, Track B): use uv with this repo's pyproject, or pip the same set + wandb + piq.
+# Full env (GPU box, Track B): `uv sync` (this repo's pyproject), or pip the same set + wandb + piq.
 ```
+
+See **SETUP_GUIDE.pdf** for the full step-by-step (clone -> env -> download assets -> verify -> run -> sweep).
 
 ## Track A — numerical verification (no GPU, no checkpoint)
 
