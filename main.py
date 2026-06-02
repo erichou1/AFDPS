@@ -20,7 +20,8 @@ from hydra.utils import instantiate
 
 import torch
 from torch.utils.data import DataLoader
-import wandb
+# wandb is optional: only imported when config.wandb is True (logging / sweeps).
+# Inference with wandb=false (the default) needs neither the package nor an account.
 
 from utils.helper import open_url, create_logger
 
@@ -34,8 +35,9 @@ def main(config):
     torch.manual_seed(config.seed)
 
     if config.wandb:
+        import wandb
         problem_name = config.get('problem')['name']
-        wandb.init(project=problem_name, group=config.algorithm.name, 
+        wandb.init(project=problem_name, group=config.algorithm.name,
                    config=OmegaConf.to_container(config), 
                    reinit=True, settings=wandb.Settings(start_method="fork"))
         config = OmegaConf.create(dict(wandb.config)) # necessary for wandb sweep because wandb.config will be overwritten by sweep agent right after wandb.init
@@ -119,6 +121,7 @@ def main(config):
     metric_state = evaluator.compute()
     logger.info(f"Final metric results: {metric_state}...")
     if config.wandb:
+        import wandb
         wandb.log(metric_state)
         wandb.finish()
 

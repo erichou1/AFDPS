@@ -75,7 +75,8 @@ code("python -m venv .venv && source .venv/bin/activate\n"
      "pip install --upgrade pip\n"
      "# install the CUDA build of torch that matches your driver, then the rest:\n"
      "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124\n"
-     "pip install hydra-core omegaconf lmdb numpy tqdm wandb piq pyyaml")
+     "pip install hydra-core omegaconf lmdb numpy tqdm piq pyyaml\n"
+     "# wandb is OPTIONAL (only for the Step 8 sweep): pip install wandb")
 body("Sanity check the GPU is visible:")
 code('python -c "import torch; print(torch.__version__, torch.cuda.is_available(), '
      'torch.cuda.get_device_name(0))"')
@@ -164,8 +165,12 @@ bullet("problem.model.hutchinson_scheme=forward -- halves the Laplacian solves (
 bullet("problem.model.grad_chunk -- raise to fill the GPU (memory permitting).")
 
 rule()
-h1("Step 8 -- Hyperparameter sweep (wandb)")
-body("Once you know a sane guidance_gamma range, run the bayes sweep over the validation set.")
+h1("Step 8 -- Hyperparameter sweep (OPTIONAL -- needs wandb)")
+body("This is the ONLY step that needs Weights & Biases (a free account + 'pip install wandb'). "
+     "It is optional: everything else runs with wandb=false (the default) and no account. If you "
+     "skip wandb, just tune by hand as in Step 7 (a shell loop over configs) -- results print to "
+     "stdout and save under exps/.")
+body("With wandb: run the bayes sweep over the validation set.")
 code("wandb login                                   # once\n"
      "wandb sweep configs/sweep/navier-stokes/afdps.yaml\n"
      "# copy the printed sweep ID, then launch one or more agents (one per GPU):\n"

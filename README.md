@@ -36,8 +36,10 @@ cd AFDPS
 
 # CPU dev / verification (Track A + ladder run fine on CPU):
 python -m venv .venv && source .venv/bin/activate
-pip install torch numpy pyyaml tqdm omegaconf hydra-core
-# Full env (GPU box, Track B): `uv sync` (this repo's pyproject), or pip the same set + wandb + piq.
+pip install torch numpy pyyaml tqdm omegaconf hydra-core lmdb piq
+# Full env (GPU box, Track B): `uv sync` (this repo's pyproject).
+# wandb is OPTIONAL -- only for the Step-8 hyperparameter sweep (`pip install wandb`).
+# Inference/verification need neither wandb nor an account (wandb=false is the default).
 ```
 
 See **SETUP_GUIDE.pdf** for the full step-by-step (clone -> env -> download assets -> verify -> run -> sweep).

@@ -17,8 +17,13 @@ dependencies = [
     "lmdb>=1.4.0",
     "numpy>=1.24.0",
     "tqdm>=4.66.0",
-    "wandb>=0.16.0",
     "pyyaml>=6.0",
     "piq>=0.8.0",
     "pytest>=8.0.0",
 ]
+
+# wandb is OPTIONAL -- only needed for the automated hyperparameter sweep (Step 8).
+# Inference/verification (wandb=false, the default) need neither the package nor an account.
+# Install with:  pip install -e ".[sweep]"   (or just: pip install wandb)
+[project.optional-dependencies]
+sweep = ["wandb>=0.16.0"]
