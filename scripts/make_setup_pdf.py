@@ -150,11 +150,17 @@ body("A live progress bar shows step count + ETA; it is done when it hits 100% a
      "guidance strength -- go to Step 7.")
 h2("Timing (anchored at ~10 s per diffusion step on a GB200)")
 bullet("One full-config sample (200 steps, 16 particles): ~1 hour.")
-bullet("All 10 test cases (full benchmark): ~8-13 hours. Run overnight (nohup ... > final.log 2>&1 &), "
-       "or split cases across your GB200s -- e.g. id_list=0-4 on one GPU, 5-9 on another -- to divide "
-       "the wall-clock by the number of GPUs.")
+bullet("All 10 test cases on ONE GPU: ~8-13 hours.")
+h2("Run the full benchmark split across your 4 GPUs (recommended)")
+body("One launcher shards the 10 test cases across GPUs (CUDA_VISIBLE_DEVICES per process), waits, "
+     "and aggregates the per-case relative-L2 into one mean +/- std. Because main.py now seeds PER "
+     "CASE ID, the split is bit-for-bit identical to a single-GPU run -- only faster (limited by the "
+     "biggest shard, ~3 cases -> ~3-4 hours instead of ~10):")
+code("bash scripts/run_multigpu.sh <guidance_gamma> final 4 10\n"
+     "#                              ^gamma          ^exp ^GPUs ^cases\n"
+     "# prints AGGREGATE relative l2 (mean/std) over all 10 cases at the end.")
 bullet("Resume after a crash: each finished case is saved; rerun only the remaining id_list, then "
-       "aggregate all with inference=false (no recompute).")
+       "aggregate with  python scripts/aggregate.py \"exps/.../AFDPS/final_g<gamma>_shard*/result_*.pt\".")
 
 rule()
 h1("Step 7 -- Tune the guidance (the single most important knob)")
@@ -195,12 +201,14 @@ body("The sweep optimizes 'relative l2' (the metric main.py actually logs on the
 
 rule()
 h1("Step 9 -- Full benchmark grid + compare to baselines")
-body("Run the best config across the 3x3 grid: subsampling in {2,4,8} x noise in {0,1,2}. Each "
-     "is a separate run via problem.model overrides. Example (x4, sigma=1):")
-code("python main.py problem=navier-stokes-afdps algorithm=afdps pretrain=navier-stokes \\\n"
-     "    problem.model.downsample_factor=4 problem.model.sigma_noise=1.0 \\\n"
-     "    algorithm.method.guidance_gamma=<tuned> num_samples=1 wandb=false \\\n"
-     "    exp_name=ds4_sig1")
+body("Run the best config across the 3x3 grid: subsampling in {2,4,8} x noise in {0,1,2}. Each cell "
+     "is one run; pass the cell's settings as extra overrides to the multi-GPU launcher (they are "
+     "forwarded verbatim). Example (x4, sigma=1, gamma=10):")
+code("bash scripts/run_multigpu.sh 10 ds4sig1 4 10 \\\n"
+     "    problem.model.downsample_factor=4 problem.model.sigma_noise=1.0")
+body("(Or a single-GPU run: python main.py problem=navier-stokes-afdps algorithm=afdps "
+     "pretrain=navier-stokes problem.model.downsample_factor=4 problem.model.sigma_noise=1.0 "
+     "algorithm.method.guidance_gamma=10 wandb=false exp_name=ds4sig1.)")
 body("Collect the aggregate relative-L2 for each cell and tabulate against the published baselines "
      "(EnKG, DPG, EKI, DPS-GSG). You can also run those baselines in this same repo for an "
      "apples-to-apples comparison, e.g.:")

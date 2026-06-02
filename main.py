@@ -90,6 +90,14 @@ def main(config):
                 if isinstance(val, torch.Tensor):
                     data[key] = val.to(device)
         data_id = testset.id_list[i]
+        # Seed per GLOBAL case id (not the loop index) so each case is independent of
+        # run order -> results are identical whether cases run sequentially on one GPU
+        # or split across GPUs (each process reseeds per case). Makes multi-GPU sharding
+        # bit-for-bit equivalent to a single-GPU run.
+        try:
+            torch.manual_seed(config.seed + int(data_id))
+        except (ValueError, TypeError):
+            torch.manual_seed(config.seed + i)
         save_path = os.path.join(exp_dir, f'result_{data_id}.pt')
         if config.inference:
             # get the observation
