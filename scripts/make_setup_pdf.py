@@ -85,21 +85,27 @@ body("NOTE: the trimmed pyproject.toml omits the FWI/MRI/black-hole solvers (dev
 
 rule()
 h1("Step 3 -- Download the assets (checkpoint + data)")
-body("Run scripts/download_assets.sh to print the exact sources, then fetch:")
-h2("3a. Pretrained diffusion prior (ns-5m.pt)")
-body("From the InverseBench GitHub release 'diffusion-prior'. Place it at checkpoints/ns-5m.pt:")
-code("mkdir -p checkpoints\n"
+body("One command downloads everything -- the ~102 MB diffusion prior AND the ~7 MB NS datasets -- "
+     "and unzips the data to the exact paths the configs expect (needs curl + unzip):")
+code("bash scripts/download_assets.sh          # or: ... data   |   ... ckpt")
+body("Result: checkpoints/ns-5m.pt  and  ../data/navier-stokes-{test,val}/Re200.0-t5.0 "
+     "(an LMDB dir with data.mdb + lock.mdb; 'data' is a SIBLING of the repo folder).")
+h2("About the data access (CaltechDATA)")
+body("The NS data lives in a CaltechDATA record whose METADATA is public but whose FILES are "
+     "RESTRICTED, so the bare URL https://data.caltech.edu/records/jfdr4-6ws87 will not let you "
+     "download. Access needs a share token -- the script uses the public one already in "
+     "README_InverseBench.md. If the data step ever returns 401/403, the token expired: open the "
+     "tokenized link in README_InverseBench.md (or get a fresh share link from the record page) and "
+     "replace CALTECH_TOKEN at the top of scripts/download_assets.sh.")
+h2("Manual equivalent (if you prefer)")
+code("# checkpoint:\n"
      "curl -L -o checkpoints/ns-5m.pt \\\n"
-     "  https://github.com/devzhk/InverseBench/releases/download/diffusion-prior/ns-5m.pt")
-h2("3b. Navier-Stokes datasets (LMDB)")
-body("From the Caltech data page (see README_InverseBench.md for the tokenized URL):")
-body("  https://data.caltech.edu/records/jfdr4-6ws87")
-body("Extract so these paths exist RELATIVE TO THE REPO (a sibling 'data' directory):")
-code("../data/navier-stokes-test/Re200.0-t5.0    # 10 test samples\n"
-     "../data/navier-stokes-val/Re200.0-t5.0     # 1 validation sample (for the sweep)")
-body("i.e. the 'data' directory is a SIBLING of the cloned AFDPS folder (../data/... from inside "
-     "the repo). These relative paths are what the configs "
-     "(configs/problem/navier-stokes-afdps.yaml, the sweep yaml) already point to.")
+     "  https://github.com/devzhk/InverseBench/releases/download/diffusion-prior/ns-5m.pt\n"
+     "# data (TOK = the token from README_InverseBench.md):\n"
+     "B=https://data.caltech.edu/api/records/jfdr4-6ws87/files\n"
+     "curl -L -o ns-test.zip \"$B/navier-stokes-test.zip/content?token=$TOK\"\n"
+     "curl -L -o ns-val.zip  \"$B/navier-stokes-val.zip/content?token=$TOK\"\n"
+     "mkdir -p ../data && unzip -o ns-test.zip -d ../data && unzip -o ns-val.zip -d ../data")
 
 rule()
 h1("Step 4 -- Verify the install")
