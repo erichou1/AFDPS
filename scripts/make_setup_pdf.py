@@ -75,7 +75,7 @@ code("python -m venv .venv && source .venv/bin/activate\n"
      "pip install --upgrade pip\n"
      "# install the CUDA build of torch that matches your driver, then the rest:\n"
      "pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124\n"
-     "pip install hydra-core omegaconf lmdb numpy tqdm piq pyyaml\n"
+     "pip install hydra-core omegaconf lmdb numpy tqdm piq pyyaml requests\n"
      "# wandb is OPTIONAL (only for the Step 8 sweep): pip install wandb")
 body("Sanity check the GPU is visible:")
 code('python -c "import torch; print(torch.__version__, torch.cuda.is_available(), '

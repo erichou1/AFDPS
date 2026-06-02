@@ -1,18 +1,34 @@
 import os
-import lmdb
-import h5py
 import numpy as np
-import sigpy as sp
 from tqdm import tqdm
 
 import torch
 from torch.utils.data import Dataset
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as TF
 
 from utils.helper import parse_int_list
 from pathlib import Path
-from PIL import Image
+
+import lmdb  # required by LMDBData (the Navier-Stokes / PDE datasets)
+
+# Optional deps, only used by non-PDE datasets (MRI: h5py/sigpy; image: torchvision/PIL).
+# Guarded so the trimmed Navier-Stokes environment can import LMDBData without them.
+try:
+    import h5py
+except ImportError:
+    h5py = None
+try:
+    import sigpy as sp
+except ImportError:
+    sp = None
+try:
+    import torchvision.transforms as transforms
+    import torchvision.transforms.functional as TF
+except ImportError:
+    transforms = TF = None
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 
 class ImageFolder(Dataset):
