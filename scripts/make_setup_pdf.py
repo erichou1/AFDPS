@@ -92,11 +92,14 @@ body("Result: checkpoints/ns-5m.pt  and  ../data/navier-stokes-{test,val}/Re200.
      "(an LMDB dir with data.mdb + lock.mdb; 'data' is a SIBLING of the repo folder).")
 h2("About the data access (CaltechDATA)")
 body("The NS data lives in a CaltechDATA record whose METADATA is public but whose FILES are "
-     "RESTRICTED, so the bare URL https://data.caltech.edu/records/jfdr4-6ws87 will not let you "
-     "download. Access needs a share token -- the script uses the public one already in "
-     "README_InverseBench.md. If the data step ever returns 401/403, the token expired: open the "
-     "tokenized link in README_InverseBench.md (or get a fresh share link from the record page) and "
-     "replace CALTECH_TOKEN at the top of scripts/download_assets.sh.")
+     "RESTRICTED, so the bare record URL will not let you download. Access needs a share token -- "
+     "the script uses the public one already in README_InverseBench.md. If the data step ever "
+     "returns 401/403, the token expired: open the tokenized link in README_InverseBench.md (or get "
+     "a fresh share link from the record page) and replace CALTECH_TOKEN in scripts/download_assets.sh.")
+body("The record has 4 versions. The NS test/val files are byte-identical across all of them, so the "
+     "version does not matter for the benchmark; the downloader uses the LATEST (zg89b-mpv16), which "
+     "also contains navier-stokes-train.zip (~1.24 GB) -- only needed if you retrain the prior "
+     "(bash scripts/download_assets.sh train).")
 h2("Manual equivalent (if you prefer)")
 code("# checkpoint:\n"
      "curl -L -o checkpoints/ns-5m.pt \\\n"
