@@ -106,7 +106,7 @@ code("# checkpoint:\n"
      "curl -L -o checkpoints/ns-5m.pt \\\n"
      "  https://github.com/devzhk/InverseBench/releases/download/diffusion-prior/ns-5m.pt\n"
      "# data (TOK = the token from README_InverseBench.md):\n"
-     "B=https://data.caltech.edu/api/records/jfdr4-6ws87/files\n"
+     "B=https://data.caltech.edu/api/records/zg89b-mpv16/files\n"
      "curl -L -o ns-test.zip \"$B/navier-stokes-test.zip/content?token=$TOK\"\n"
      "curl -L -o ns-val.zip  \"$B/navier-stokes-val.zip/content?token=$TOK\"\n"
      "mkdir -p ../data && unzip -o ns-test.zip -d ../data && unzip -o ns-val.zip -d ../data")
