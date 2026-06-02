@@ -26,6 +26,7 @@ as `net(x, sigma) -> denoised`.
 """
 import numpy as np
 import torch
+from tqdm import tqdm
 
 
 class Ensemble_Denoiser_EDM:
@@ -53,9 +54,11 @@ class Ensemble_Denoiser_EDM:
         mode='sde',
         likelihood_at='denoised',
         guidance_gamma=1.0,
+        progress=True,
     ):
         self.net = net
         self.device = device
+        self.progress = progress   # show a per-sample tqdm bar (steps + live ETA)
         # Annealed-guidance schedule (PiGDM/DPS-style). The likelihood is evaluated
         # at the denoised estimate x_hat, whose residual uncertainty scales with the
         # current diffusion noise sigma(t). Using an effective data std
@@ -188,7 +191,8 @@ class Ensemble_Denoiser_EDM:
         x_return_list = torch.empty(len(self.t_steps) - 1, *x_ref[0].shape, device=self.device) if return_trajectory else None
         log_weight_list = torch.zeros(num_particles, device=self.device)
 
-        for i, (t_cur, t_next) in enumerate(zip(self.t_steps[:-1], self.t_steps[1:])):  # 0, ..., N-1
+        steps = list(zip(self.t_steps[:-1], self.t_steps[1:]))
+        for i, (t_cur, t_next) in enumerate(tqdm(steps, desc='AFDPS sampling', disable=not self.progress)):  # 0..N-1
             denoised = self.net(x_track_list / self.s(t_cur), self.sigma(t_cur)).to(torch.float32)
             x_eval = denoised if self.likelihood_at == 'denoised' else x_track_list
             r_t = (float(noiser.sigma) ** 2 + (self.guidance_gamma * float(self.sigma(t_cur))) ** 2) ** 0.5
