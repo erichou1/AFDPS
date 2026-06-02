@@ -139,23 +139,38 @@ code('python -c "import torch,sys; sys.path.insert(0,\'.\');\\\n'
 body("Expect finite: True. If False, set problem.model.delta_t=0.001 everywhere below.")
 
 rule()
-h1("Step 6 -- First Track B run (one setting)")
-body("Run AFDPS on the real benchmark at x2 subsampling, sigma=0. This prints relative-L2 per "
-     "test case and an aggregate at the end.")
+h1("Step 6 -- First Track B run")
+body("Run a SINGLE case first to get a number fast (the full 10-case run is hours -- see timing). "
+     "x2 subsampling, sigma=0:")
 code("python main.py problem=navier-stokes-afdps algorithm=afdps pretrain=navier-stokes \\\n"
-     "    num_samples=1 wandb=false")
-body("Results are saved under exps/inference/navier-stokes-afdps-ds2/AFDPS/. If you see NaN or "
-     "rel-L2 >> 1, it is almost always the guidance strength -- go to Step 7.")
+     "    problem.data.id_list=0-0 num_samples=1 wandb=false")
+body("A live progress bar shows step count + ETA; it is done when it hits 100% and prints "
+     "'Final metric results: {relative l2: ...}'. Results save under "
+     "exps/inference/navier-stokes-afdps-ds2/AFDPS/. NaN or rel-L2 >> 1 almost always means the "
+     "guidance strength -- go to Step 7.")
+h2("Timing (anchored at ~10 s per diffusion step on a GB200)")
+bullet("One full-config sample (200 steps, 16 particles): ~1 hour.")
+bullet("All 10 test cases (full benchmark): ~8-13 hours. Run overnight (nohup ... > final.log 2>&1 &), "
+       "or split cases across your GB200s -- e.g. id_list=0-4 on one GPU, 5-9 on another -- to divide "
+       "the wall-clock by the number of GPUs.")
+bullet("Resume after a crash: each finished case is saved; rerun only the remaining id_list, then "
+       "aggregate all with inference=false (no recompute).")
 
 rule()
 h1("Step 7 -- Tune the guidance (the single most important knob)")
 body("guidance_gamma controls the annealed data-guidance strength and MUST be scaled to the data. "
-     "Too small -> unstable / NaN; too large -> ignores the data (rel-L2 ~ 1). Sweep it by hand "
-     "first to find the stable, useful range, e.g.:")
+     "Too small -> unstable / NaN; too large -> ignores the data (rel-L2 ~ 1).")
+body("Tune FAST -- 1 case + few steps + forward Hutchinson (~5 min/run). Coarse scan first; pick the "
+     "gamma with the lowest 'relative l2':")
 code("for g in 1 3 10 30; do \\\n"
      "  python main.py problem=navier-stokes-afdps algorithm=afdps pretrain=navier-stokes \\\n"
-     "    algorithm.method.guidance_gamma=$g num_samples=1 wandb=false \\\n"
-     "    exp_name=gamma_$g ; done")
+     "    problem.data.id_list=0-0 algorithm.method.num_steps=30 \\\n"
+     "    algorithm.method.num_particles=8 problem.model.hutchinson_scheme=forward \\\n"
+     "    algorithm.method.guidance_gamma=$g num_samples=1 wandb=false exp_name=g$g ; done")
+body("Decision rule: if the small gammas NaN/are >1.5 -> go higher (30 100 300); if all stuck ~1.0 "
+     "-> go lower (0.3 1 3). Then ZOOM around the winner W (e.g. W=10 -> try 5 7 10 15 20). "
+     "~9 runs x ~5 min ~= 45 min total. (DO NOT tune on all 10 cases at full steps -- that is ~40 h. "
+     "guidance has a broad sweet spot, so a coarse scan + one zoom is enough.)")
 body("Other useful knobs (all overridable on the command line):")
 bullet("algorithm.method.num_steps (e.g. 100/200/400) -- more steps = more stable, slower.")
 bullet("algorithm.method.num_particles (8/16/32/64) -- ensemble size; batched on GPU.")
