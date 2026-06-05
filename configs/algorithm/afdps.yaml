@@ -1,8 +1,8 @@
 name: AFDPS
 method:
   _target_: algo.afdps.AFDPS
-  num_particles: 16        # ensemble size (batched on GPU)
-  num_steps: 200           # annealed-SDE / diffusion steps
+  num_particles: 32        # ensemble size (batched on GPU)
+  num_steps: 400           # annealed-SDE / diffusion steps
   sigma_min: 0.002
   sigma_max: 80.0
   rho: 7                   # EDM time discretization exponent
@@ -14,3 +14,6 @@ method:
   guidance_gamma: 1.0      # annealed-guidance strength; smaller -> stronger/earlier data fit
   prior: diffusion         # 'diffusion' (ns-5m.pt) | 'gaussian' (analytic GRF, Track A only)
   reduce: best             # 'best' | 'mean' | 'topk' (how the ensemble collapses to samples)
+  sampler_kwargs:
+    resample: false            # AFDPS Algorithm 1 ESS resampling (paper skips it); enable to restore
+    resample_threshold: 0.5    # c in (0,1): resample when normalized ESS < c

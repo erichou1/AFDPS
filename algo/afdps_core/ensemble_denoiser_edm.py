@@ -54,6 +54,8 @@ class Ensemble_Denoiser_EDM:
         mode='sde',
         likelihood_at='denoised',
         guidance_gamma=1.0,
+        resample=False,
+        resample_threshold=0.5,
         progress=True,
     ):
         self.net = net
@@ -68,6 +70,15 @@ class Ensemble_Denoiser_EDM:
         # strength (smaller -> stronger/earlier data fit). Without this, the explicit
         # SDE step requires thousands of steps to remain stable for small sigma_y.
         self.guidance_gamma = guidance_gamma
+        # ESS-based resampling (AFDPS Algorithm 1). The released AFDPS skips this step
+        # "to save computational cost ... in a parallel way" (paper App. E), letting the
+        # Feynman-Kac weights accumulate over all steps until one particle dominates.
+        # Restoring it culls degenerate (near-zero-weight) particles and duplicates the
+        # high-weight ones, keeping the effective sample size up so the returned
+        # highest-weight reconstruction is drawn from a healthier ensemble. Default off
+        # to keep existing runs byte-identical; enable via sampler_kwargs.resample=true.
+        self.resample = resample
+        self.resample_threshold = resample_threshold  # c in (0,1): normalized-ESS trigger
         # Where to evaluate the likelihood gradient/Laplacian each step:
         #   'denoised' : at the Tweedie estimate D_x (DPS-style). REQUIRED for a
         #                nonlinear PDE forward -- the solver run from a noise-
@@ -226,6 +237,21 @@ class Ensemble_Denoiser_EDM:
             mx = log_weight_list.max()
             if torch.isfinite(mx):
                 log_weight_list = log_weight_list - mx
+
+            # AFDPS Algorithm 1: resample when the normalized Effective Sample Size drops
+            # below the threshold c. Normalized ESS = (sum w)^2 / (N * sum w^2) in [1/N, 1]
+            # with w the (unnormalized) Feynman-Kac weights; here w = softmax(log_weight)
+            # is already sum-normalized, so ESS_norm = 1 / (N * sum w^2). Bad (-inf) particles
+            # get w=0 and are never resampled in. Skip the final step so the terminal weights
+            # stay discriminative for the argmax-best reduction in the wrapper.
+            if self.resample and i < len(steps) - 1:
+                w = torch.softmax(log_weight_list, dim=0)
+                ess_norm = 1.0 / (num_particles * (w ** 2).sum().clamp_min(1e-30))
+                n_finite = int(torch.isfinite(log_weight_list).sum())
+                if n_finite > 1 and torch.isfinite(ess_norm) and float(ess_norm) < self.resample_threshold:
+                    idx = torch.multinomial(w, num_particles, replacement=True)
+                    x_track_list = x_track_list[idx]
+                    log_weight_list = torch.zeros_like(log_weight_list)  # reset beta <- 1
 
             if return_trajectory:
                 x_return_list[i] = x_track_list[torch.argmax(log_weight_list)]
