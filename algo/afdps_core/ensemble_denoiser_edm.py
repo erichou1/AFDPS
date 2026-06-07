@@ -54,6 +54,7 @@ class Ensemble_Denoiser_EDM:
         mode='sde',
         likelihood_at='denoised',
         guidance_gamma=1.0,
+        use_value=False,
         resample=False,
         resample_threshold=0.5,
         progress=True,
@@ -70,6 +71,12 @@ class Ensemble_Denoiser_EDM:
         # strength (smaller -> stronger/earlier data fit). Without this, the explicit
         # SDE step requires thousands of steps to remain stable for small sigma_y.
         self.guidance_gamma = guidance_gamma
+        # Feynman-Kac potential refinement (TMLR ensemble sampler). When on, the actual
+        # negative-log-likelihood value mu_y(x) is added to the FK log-weight so particles
+        # are scored by their real data-misfit level, not only by the ||grad||^2 - Tr(Hess)
+        # curvature terms. Requires operator.likelihood_value(x, y, sigma). Default off to
+        # keep existing runs byte-identical.
+        self.use_value = use_value
         # ESS-based resampling (AFDPS Algorithm 1). The released AFDPS skips this step
         # "to save computational cost ... in a parallel way" (paper App. E), letting the
         # Feynman-Kac weights accumulate over all steps until one particle dominates.
@@ -225,6 +232,12 @@ class Ensemble_Denoiser_EDM:
 
             reweight_func = ((self.s(t_cur) ** 2) * (self.sigma_deriv(t_cur) * self.sigma(t_cur))) \
                 * ((grad_x_i ** 2).sum(dim=(1, 2, 3)) - laplacian_x_i) + (d_cur * grad_x_i).sum(dim=(1, 2, 3))
+            if self.use_value:
+                # add the actual misfit value mu_y(x) to the FK potential (TMLR refinement);
+                # t0 normalizes it onto the same per-step scale as the curvature terms.
+                value_x_i = operator.likelihood_value(x_eval, x_noisy, r_t)
+                value_x_i = torch.nan_to_num(value_x_i)
+                reweight_func = reweight_func - (1.0 / float(self.t_steps[0])) * value_x_i
             log_weight_list = log_weight_list + (t_cur - t_next) * reweight_func
 
             # Quarantine non-finite particles so they are never selected and do not

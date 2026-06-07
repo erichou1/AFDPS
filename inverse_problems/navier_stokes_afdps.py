@@ -32,6 +32,9 @@ class AFDPSNavierStokes2d(ForwardNavierStokes2d):
                  sigma_floor=1e-3,
                  adjoint_mode='autodiff',     # 'autodiff' (discrete adjoint) | 'continuous'
                  init_mode='zeros',           # 'zeros' | 'Pstar_y'
+                 grad_smooth_M=1,             # randomized smoothing: average the adjoint over M perturbed solves (1 = off)
+                 grad_smooth_eps=0.0,         # perturbation std (physical units) for randomized smoothing
+                 grad_lowpass_frac=None,      # spectral low-pass cutoff as a fraction of Nyquist (None = off)
                  **kwargs):
         # Force fixed dt: a fixed-length differentiable trajectory is required for
         # the adjoint. Default to non-adaptive even if the config forgets.
@@ -44,6 +47,11 @@ class AFDPSNavierStokes2d(ForwardNavierStokes2d):
         self.sigma_floor = sigma_floor
         self.adjoint_mode = adjoint_mode
         self.init_mode = init_mode
+        # gradient variance reduction (the chaotic Re=200 adjoint is spiky; both default off)
+        self.grad_smooth_M = grad_smooth_M
+        self.grad_smooth_eps = grad_smooth_eps
+        self.grad_lowpass_frac = grad_lowpass_frac
+        self._lowpass_mask = None
         # observation stashed by the algorithm before sampling (laplacian gets no y arg)
         self._y = None
 
@@ -67,16 +75,60 @@ class AFDPSNavierStokes2d(ForwardNavierStokes2d):
 
     def likelihood_gradient(self, x, y, sigma):
         """grad_x mu_y for normalized x. Returns (B, 1, res, res). Matches the
-        reference sign convention (+grad of the data misfit)."""
+        reference sign convention (+grad of the data misfit).
+
+        Variance reduction for the chaotic Re=200 adjoint (both opt-in, default off):
+          * randomized smoothing -- average the gradient over grad_smooth_M solves at
+            x + N(0, grad_smooth_eps^2), i.e. grad of a Gaussian-smoothed misfit. Tames
+            the intermittent gradient spikes at the cost of M extra adjoint solves.
+          * spectral low-pass -- zero the gradient's high-wavenumber modes (above
+            grad_lowpass_frac * Nyquist), which on a chaotic flow are dominated by
+            untrustworthy noise; the recoverable signal lives at low/mid k.
+        """
         sigma_eff = max(float(sigma), self.sigma_floor)
         y_phys = y.squeeze(1)                       # (1, res/f, res/f), physical units
-        g = torch.empty_like(x)
-        for sl in torch.split(torch.arange(x.shape[0]), self.grad_chunk):
-            chunk = x[sl]
-            w0 = self.unnormalize(chunk).squeeze(1)  # physical vorticity (b, s1, s2)
-            g_phys = self._phys_grad(w0, y_phys, sigma_eff)
-            g[sl] = (self.unnorm_scale * g_phys).unsqueeze(1)   # chain rule x -> omega0
+        M = max(1, int(self.grad_smooth_M))
+        g = torch.zeros_like(x)
+        for m in range(M):
+            xm = x if (M == 1 or self.grad_smooth_eps <= 0) else x + self.grad_smooth_eps * torch.randn_like(x)
+            gm = torch.empty_like(x)
+            for sl in torch.split(torch.arange(x.shape[0]), self.grad_chunk):
+                chunk = xm[sl]
+                w0 = self.unnormalize(chunk).squeeze(1)  # physical vorticity (b, s1, s2)
+                g_phys = self._phys_grad(w0, y_phys, sigma_eff)
+                gm[sl] = (self.unnorm_scale * g_phys).unsqueeze(1)   # chain rule x -> omega0
+            g = g + gm
+        g = g / M
+        if self.grad_lowpass_frac is not None:
+            g = self._lowpass(g)
         return g
+
+    def _lowpass(self, g):
+        """Zero spatial-frequency modes above grad_lowpass_frac * Nyquist (rfft2 grid)."""
+        if self._lowpass_mask is None:
+            s1, s2 = self.solver.s1, self.solver.s2
+            k1 = torch.fft.fftfreq(s1, d=1.0 / s1, device=g.device).abs().view(-1, 1)
+            k2 = torch.fft.rfftfreq(s2, d=1.0 / s2, device=g.device).abs().view(1, -1)
+            cut = self.grad_lowpass_frac * (min(s1, s2) / 2.0)
+            self._lowpass_mask = ((k1 <= cut) & (k2 <= cut)).to(g.dtype)
+        gh = torch.fft.rfft2(g.squeeze(1))
+        out = torch.fft.irfft2(gh * self._lowpass_mask, s=(self.solver.s1, self.solver.s2))
+        return out.unsqueeze(1).to(g.dtype)
+
+    # ----- negative-log-likelihood VALUE (Feynman-Kac potential, from the TMLR refinement) -----
+    def likelihood_value(self, x, y, sigma):
+        """mu_y(x) = ||P L(unnorm_scale x) - y||^2 / (2 sigma^2) per particle. Returns (B,).
+        Used in the Feynman-Kac log-weight so particles are scored by their actual data
+        misfit level, not only the gradient/curvature terms."""
+        sigma_eff = max(float(sigma), self.sigma_floor)
+        y_phys = y.squeeze(1)
+        out = torch.empty(x.shape[0], device=x.device, dtype=torch.float32)
+        for sl in torch.split(torch.arange(x.shape[0]), self.grad_chunk):
+            w0 = self.unnormalize(x[sl]).squeeze(1)
+            wT = A.forward_solve(self.solver, w0, self.force, self.forward_time, self.Re, self.delta_t)
+            r = A.downsample(wT, self.downsample_factor) - y_phys
+            out[sl] = 0.5 * r.pow(2).flatten(start_dim=1).sum(dim=1) / (sigma_eff ** 2)
+        return out
 
     # ----- Hutchinson trace estimate of the likelihood Laplacian -----
     def likelihood_laplacian(self, x, sigma, g0=None):
@@ -98,6 +150,15 @@ class AFDPSNavierStokes2d(ForwardNavierStokes2d):
     # ----- ensemble initialization & top-noise perturbation -----
     def initialize_ensemble(self, gt, num_particles):
         shape = (num_particles, 1, self.solver.s1, self.solver.s2)
+        # Warm start (improvement #2): seed from a pre-computed estimate (e.g. the EnKG
+        # ensemble mean) stashed on self._warm_start by the hybrid algo. Normalized units.
+        if self.init_mode == 'warm' and getattr(self, '_warm_start', None) is not None:
+            ws = self._warm_start
+            if ws.dim() == 3:
+                ws = ws.unsqueeze(0)
+            if ws.shape[0] == 1:
+                ws = ws.repeat(num_particles, 1, 1, 1)
+            return ws.to(self.device, torch.float32)
         if self.init_mode == 'Pstar_y' and self._y is not None:
             base = self.normalize(self.Pstar(self._y.squeeze(1)).unsqueeze(1))
             return base.repeat(num_particles, 1, 1, 1)

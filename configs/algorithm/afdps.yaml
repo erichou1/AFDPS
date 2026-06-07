@@ -11,7 +11,7 @@ method:
   scaling: none
   mode: sde
   likelihood_at: denoised  # evaluate likelihood at the Tweedie estimate (required for nonlinear NS)
-  guidance_gamma: 1.0      # annealed-guidance strength; smaller -> stronger/earlier data fit
+  guidance_gamma: 1.0      # annealed-guidance strength; smaller -> stronger/earlier data fit. Per-ds (gamma~10/ds): ds2=5.5, ds4=2.1*, ds8=0.65* -- override on the CLI. (*ds4/ds8 provisional, pending n=10 confirm)
   prior: diffusion         # 'diffusion' (ns-5m.pt) | 'gaussian' (analytic GRF, Track A only)
   reduce: best             # 'best' | 'mean' | 'topk' (how the ensemble collapses to samples)
   sampler_kwargs:

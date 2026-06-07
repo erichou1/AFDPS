@@ -1,0 +1,18 @@
+name: DAPS_NS
+# Decoupled Annealing Posterior Sampling for Navier-Stokes (improvement #3).
+# Decouples the diffusion trajectory (PF-ODE) from data consistency (Langevin MCMC on the
+# CLEAN estimate) -- structurally robust to the chaotic Re=200 adjoint. A strong second
+# diffusion baseline alongside AFDPS.
+method:
+  _target_: algo.daps_ns.DAPS_NS
+  num_particles: 16          # ensemble size (reduced to the MMSE mean)
+  num_annealing_steps: 100   # outer diffusion levels (sigma_max -> sigma_min)
+  sigma_max: 80.0
+  sigma_min: 0.002
+  ode_steps: 5               # PF-ODE substeps per reverse-diffusion call
+  mcmc_steps: 20             # Langevin steps per data-consistency stage
+  mcmc_lr: 1.0e-3            # Langevin step size (sweep this and num_annealing_steps)
+  mcmc_lr_min_ratio: 0.1     # anneal the Langevin lr down over the schedule
+  tau: null                  # data-fidelity std in mu_y; null -> forward_op.sigma_noise
+  langevin_noise: true       # true = Langevin sampling; false = MAP descent
+  reduce: mean               # MMSE posterior mean (what rel-L2 rewards)

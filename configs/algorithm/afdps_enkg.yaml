@@ -1,0 +1,35 @@
+name: AFDPS_EnKG
+# EnKG warm-start -> truncated-sigma AFDPS refinement (improvement #2).
+# Stage 1 (EnKG) seeds the basin cheaply + robustly; Stage 2 (AFDPS) sharpens with the
+# learned prior, annealing from a REDUCED sigma so the warm start survives.
+method:
+  _target_: algo.afdps_enkg.AFDPS_EnKG
+  enkg:                      # Stage 1 -- cheap warm start (fewer particles/steps than a full EnKG run)
+    guidance_scale: 2.0
+    num_updates: 2
+    num_steps: 60
+    num_samples: 256         # smaller ensemble: this is a seed, not the final answer
+    sigma_max: 80.0
+    sigma_min: 0.002
+    threshold: 0.1
+    batch_size: 64
+    rho: 7
+    factor: 8
+  afdps:                     # Stage 2 -- refinement from the warm start
+    num_particles: 32
+    num_steps: 200           # fewer steps suffice from a warm start (vs 400 from noise)
+    sigma_min: 0.002
+    sigma_max: 2.0           # TRUNCATED: start the anneal near the signal scale so the warm start survives
+    rho: 7
+    discretization: edm
+    schedule: linear
+    scaling: none
+    mode: sde
+    likelihood_at: denoised
+    guidance_gamma: 0.7      # per-ds (gamma ~ 10/ds); override on the CLI
+    prior: diffusion
+    reduce: mean             # MMSE posterior mean (what rel-L2 rewards)
+    sampler_kwargs:
+      use_value: true        # TMLR Feynman-Kac value refinement
+      resample: true
+      resample_threshold: 0.5

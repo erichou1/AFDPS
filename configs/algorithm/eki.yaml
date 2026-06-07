@@ -4,4 +4,3 @@ method:
   guidance_scale: 2.0
   num_updates: 500
   num_samples: 512
-  use_wandb: True

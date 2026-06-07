@@ -1,0 +1,31 @@
+name: AFDPS
+# "MMSE-AFDPS" -- the metric-aligned best-shot configuration for Navier-Stokes.
+#
+# Same WORKING method as afdps.yaml (learned diffusion prior + annealed EDM-SDE +
+# Feynman-Kac), changed only where the rel-L2 metric demands it:
+#   * reduce: mean   -- rel-L2 is minimized by the posterior MEAN (MMSE); the default
+#                       'best' returns a single high-variance sample (worst case for L2).
+#   * num_particles: 64 -- a larger ensemble gives a lower-variance posterior-mean estimate.
+#   * resample: true -- keep the effective sample size up so the FK-weighted mean is drawn
+#                       from a healthy (non-degenerate) ensemble.
+# guidance_gamma is still set per regime on the CLI (the gamma ~ 10/ds scaling law):
+#   ds2 -> 5.5,  ds4 -> 2.1* (pending n=10 confirm vs 2.0),  ds8 -> 0.65* (pending n=10 confirm vs 0.7).
+# Target regime: the sparse + high-noise crossover (ds8, sigma=2) where EnKG degrades to 0.773.
+method:
+  _target_: algo.afdps.AFDPS
+  num_particles: 64        # larger ensemble -> lower-variance MMSE mean
+  num_steps: 400           # annealed-SDE / diffusion steps
+  sigma_min: 0.002
+  sigma_max: 80.0
+  rho: 7
+  discretization: edm
+  schedule: linear
+  scaling: none
+  mode: sde
+  likelihood_at: denoised  # evaluate likelihood at the Tweedie estimate (required for nonlinear NS)
+  guidance_gamma: 0.65     # default ds8; override per ds (gamma ~ 10/ds) on the CLI
+  prior: diffusion         # learned diffusion prior ns-5m.pt (the only prior that conditions)
+  reduce: mean             # MMSE posterior mean -- what rel-L2 actually rewards
+  sampler_kwargs:
+    resample: true             # keep ESS up so the weighted mean is from a healthy ensemble
+    resample_threshold: 0.5
