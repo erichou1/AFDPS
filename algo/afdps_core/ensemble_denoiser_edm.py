@@ -54,6 +54,12 @@ class Ensemble_Denoiser_EDM:
         mode='sde',
         likelihood_at='denoised',
         guidance_gamma=1.0,
+        guidance_mode='fixed',
+        trace_M=1,
+        trace_every=10,
+        trace_dense_until=0,
+        cg_iters=30,
+        pigdm_scale=1.0,
         use_value=False,
         resample=False,
         resample_threshold=0.5,
@@ -71,6 +77,28 @@ class Ensemble_Denoiser_EDM:
         # strength (smaller -> stronger/earlier data fit). Without this, the explicit
         # SDE step requires thousands of steps to remain stable for small sigma_y.
         self.guidance_gamma = guidance_gamma
+        # Guidance mode. 'fixed' (default) uses the hand-set guidance_gamma and is
+        # byte-identical to before. 'auto' is J-aware (isotropic PiGDM): it ignores
+        # guidance_gamma and sets the guidance strength from the MEASURED Jacobian trace
+        #   lambda_bar = tr(J J^T) / n_meas   ->   r_t^2 = sigma_y^2 + sigma(t)^2 * lambda_bar,
+        # so the gamma~10/ds rescaling is replaced by the operator's own sensitivity
+        # (sqrt(lambda_bar) plays the role of gamma). Amortized: lambda_bar is recomputed
+        # every `trace_every` steps -- and every step while i < `trace_dense_until`, the
+        # high-sigma phase where it varies fastest -- and held constant in between. Each
+        # recompute costs `trace_M` Hutchinson VJP probes (operator.jacobian_trace).
+        self.guidance_mode = guidance_mode
+        self.trace_M = trace_M
+        self.trace_every = max(1, int(trace_every))
+        self.trace_dense_until = int(trace_dense_until)
+        # CG iterations for guidance_mode='full' (anisotropic PiGDM measurement-space solve).
+        # The sigma_y^2 I + sigma_t^2 J J^T system is well-conditioned (regularized), so a
+        # handful of iterations suffices; raise if the logged CG rel_residual is large.
+        self.cg_iters = int(cg_iters)
+        # Single global magnitude calibration for guidance_mode='full'. The PiGDM gradient is
+        # the matrix-inverse solution, whose scale differs from the fixed-mode 1/r_t^2 gradient
+        # the SDE drift coefficient was tuned for; pigdm_scale rescales it (one constant, not
+        # per-cell). Sweep once to find the value that keeps the SDE stable.
+        self.pigdm_scale = float(pigdm_scale)
         # Feynman-Kac potential refinement (TMLR ensemble sampler). When on, the actual
         # negative-log-likelihood value mu_y(x) is added to the FK log-weight so particles
         # are scored by their real data-misfit level, not only by the ||grad||^2 - Tr(Hess)
@@ -208,16 +236,54 @@ class Ensemble_Denoiser_EDM:
         x_track_list = operator.proximal_generator(x_ref, x_noisy, noiser.sigma, scale)
         x_return_list = torch.empty(len(self.t_steps) - 1, *x_ref[0].shape, device=self.device) if return_trajectory else None
         log_weight_list = torch.zeros(num_particles, device=self.device)
+        self._lambda_bar = None   # cached tr(J J^T)/n_meas for guidance_mode='auto' (amortized)
+        self._pigdm_logged = False  # one-time CG-convergence print for guidance_mode='full'
 
         steps = list(zip(self.t_steps[:-1], self.t_steps[1:]))
         for i, (t_cur, t_next) in enumerate(tqdm(steps, desc='AFDPS sampling', disable=not self.progress)):  # 0..N-1
             denoised = self.net(x_track_list / self.s(t_cur), self.sigma(t_cur)).to(torch.float32)
             x_eval = denoised if self.likelihood_at == 'denoised' else x_track_list
-            r_t = (float(noiser.sigma) ** 2 + (self.guidance_gamma * float(self.sigma(t_cur))) ** 2) ** 0.5
-            grad_x_i = operator.likelihood_gradient(x_eval, x_noisy, r_t)
-            # forward-difference Hutchinson can reuse this drift gradient as the
-            # unperturbed point (g0); central-scheme operators ignore the kwarg.
-            laplacian_x_i = operator.likelihood_laplacian(x_eval, r_t, g0=grad_x_i)
+            sigma_t = float(self.sigma(t_cur))
+            if self.guidance_mode == 'full':
+                # Full anisotropic PiGDM: g = J^T (sigma_y^2 I + sigma_t^2 J J^T)^{-1}(P L(x_hat) - y),
+                # solved matrix-free by CG in measurement space. NO guidance_gamma -- the guidance is
+                # fully determined by the known measurement noise sigma_y and the schedule sigma_t
+                # (gamma == 1, the principled Bayesian limit). This is the anisotropic generalization
+                # of the 'fixed'/'auto' scalar guidance and recovers them as J J^T -> mean-eigval I.
+                grad_x_i, _relres = operator.likelihood_gradient_pigdm(
+                    x_eval, x_noisy, float(noiser.sigma), sigma_t,
+                    cg_iters=self.cg_iters, pigdm_scale=self.pigdm_scale, return_diag=True)
+                if not self._pigdm_logged:
+                    print(f"[AFDPS full-PiGDM] CG iters={self.cg_iters} rel_residual={_relres:.3g} "
+                          f"scale={self.pigdm_scale:g} (sigma_y={float(noiser.sigma):.3g}, sigma_t0={sigma_t:.3g})", flush=True)
+                    self._pigdm_logged = True
+                # FK reweight Laplacian: keep the isotropic curvature term at the matched r_t.
+                # PiGDM changes the guidance DIRECTION; the FK weight is a particle-selection
+                # heuristic (||grad||^2 - Tr(Hess)) left in its stable isotropic form. Its
+                # grad_fn is the plain misfit gradient, so the forward-scheme Hutchinson needs
+                # g0 = the ISOTROPIC gradient at r_t (NOT the preconditioned PiGDM gradient).
+                r_t = (float(noiser.sigma) ** 2 + sigma_t ** 2) ** 0.5
+                g_iso = operator.likelihood_gradient(x_eval, x_noisy, r_t)
+                laplacian_x_i = operator.likelihood_laplacian(x_eval, r_t, g0=g_iso)
+            else:
+                if self.guidance_mode == 'auto':
+                    # J-aware guidance: r_t^2 = sigma_y^2 + sigma(t)^2 * lambda_bar, with the
+                    # measured mean Jacobian eigenvalue lambda_bar replacing the tuned gamma^2.
+                    # Amortized recompute (dense while sigma is large, then every trace_every).
+                    if (self._lambda_bar is None) or (i < self.trace_dense_until) or (i % self.trace_every == 0):
+                        first = self._lambda_bar is None
+                        self._lambda_bar = float(operator.jacobian_trace(x_eval, trace_M=self.trace_M))
+                        if first:
+                            # the effective gamma the operator 'chooses'; compare to the gamma~10/ds law.
+                            print(f"[AFDPS auto-guidance] lambda_bar={self._lambda_bar:.4g} "
+                                  f"-> gamma_eff=sqrt(lambda_bar)={self._lambda_bar ** 0.5:.4g}", flush=True)
+                    r_t = (float(noiser.sigma) ** 2 + (sigma_t ** 2) * self._lambda_bar) ** 0.5
+                else:
+                    r_t = (float(noiser.sigma) ** 2 + (self.guidance_gamma * sigma_t) ** 2) ** 0.5
+                grad_x_i = operator.likelihood_gradient(x_eval, x_noisy, r_t)
+                # forward-difference Hutchinson can reuse this drift gradient as the
+                # unperturbed point (g0); central-scheme operators ignore the kwarg.
+                laplacian_x_i = operator.likelihood_laplacian(x_eval, r_t, g0=grad_x_i)
 
             # Robustness: a diverged particle (e.g. CFL blow-up from too-large guidance/dt)
             # must not poison the whole ensemble. Zero its guidance contribution this step.

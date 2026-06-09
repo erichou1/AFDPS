@@ -68,6 +68,97 @@ def grad_misfit_autograd(solver, w0, force, T, Re, dt, y, factor, sigma):
 
 
 # --------------------------------------------------------------------------- #
+# Mean eigenvalue of the forward-operator Jacobian Gram matrix  J J^T          #
+# (for J-aware / isotropic-PiGDM guidance: replaces the hand-tuned gamma)       #
+# --------------------------------------------------------------------------- #
+def jac_mean_eig(solver, w0, force, T, Re, dt, factor, M=1, generator=None):
+    """Mean eigenvalue of J J^T for J = d(P L)/d(omega0) at omega0 = w0, per sample.
+
+    lambda_bar = tr(J J^T) / n_meas = E_w[ ||J^T w||^2 ] / n_meas, estimated by
+    Hutchinson with measurement-space Rademacher probes w (E[w w^T] = I): each
+    ``J^T w`` is ONE reverse-mode VJP through the (already differentiable) forward
+    solve -- the same autograd path as ``grad_misfit_autograd``, so it inherits the
+    validated discrete adjoint and needs no separate JVP. Returns (B,) in PHYSICAL
+    units. Cost: 1 forward solve + M VJP backprops (the forward graph is shared
+    across probes).
+    """
+    w0 = w0.detach().requires_grad_(True)
+    with torch.enable_grad():
+        wT = forward_solve(solver, w0, force, T, Re, dt)
+        meas = downsample(wT, factor)                     # (B, m1, m2)
+        n_meas = meas.shape[-1] * meas.shape[-2]
+        acc = torch.zeros(w0.shape[0], device=w0.device, dtype=w0.dtype)
+        for j in range(M):
+            probe = (torch.randint(0, 2, meas.shape, device=w0.device,
+                                   generator=generator).to(meas.dtype) * 2 - 1)
+            Jtw = torch.autograd.grad(meas, w0, grad_outputs=probe,
+                                      retain_graph=(j < M - 1))[0]
+            acc = acc + Jtw.flatten(start_dim=1).pow(2).sum(dim=1)
+    return acc / (M * n_meas)                              # (B,) mean eigenvalue, physical
+
+
+# --------------------------------------------------------------------------- #
+# Full anisotropic PiGDM guidance:  J^T (sigma_y^2 I + c * J J^T)^{-1} (P L - y) #
+# (measurement-space CG; the principled Bayesian guidance, no tuned gamma)      #
+# --------------------------------------------------------------------------- #
+def pigdm_gradient(solver, w0, force, T, Re, dt, y, factor, sigma_y2, jjt_coeff,
+                   cg_iters=5):
+    """Anisotropic PiGDM guidance gradient (physical domain), matrix-free via CG.
+
+    Solves   (sigma_y2 I + jjt_coeff * J J^T) z = (P L(w0) - y)   in MEASUREMENT space,
+    then returns  J^T z  (state space, same shape as w0). J = d(P L)/d w0 at w0.
+
+    The matvec uses an exact autograd VJP (J^T u) and a double-backward JVP (J v) built
+    from the SAME forward graph, so J and J^T are exact transposes and the operator
+    A = sigma_y2 I + jjt_coeff J J^T is symmetric positive-definite => CG is valid.
+    Cost per CG iter ~ one first-order backward (VJP) + one second-order backward (JVP).
+
+    Returns (g, rel_residual): g shape (B, s1, s2); rel_residual = mean over the batch of
+    the final CG relative residual ||A z - b|| / ||b|| (for convergence monitoring).
+    """
+    w0 = w0.detach().requires_grad_(True)
+    with torch.enable_grad():
+        wT = forward_solve(solver, w0, force, T, Re, dt)
+        meas = downsample(wT, factor)                      # (B, m1, m2) = P L(w0)
+        b = (meas - y).detach()                            # residual, measurement space
+        u_dummy = torch.zeros_like(meas, requires_grad=True)
+        # J^T u_dummy, kept differentiable in u_dummy so its u_dummy-derivative gives J v.
+        JT_udummy = torch.autograd.grad(meas, w0, grad_outputs=u_dummy, create_graph=True)[0]
+
+        def Jt(u):                                         # VJP: meas -> state,  J^T u
+            return torch.autograd.grad(meas, w0, grad_outputs=u, retain_graph=True)[0]
+
+        def Jv(v):                                         # JVP: state -> meas,  J v
+            return torch.autograd.grad(JT_udummy, u_dummy, grad_outputs=v, retain_graph=True)[0]
+
+        def bdot(p, q):
+            return (p * q).flatten(start_dim=1).sum(dim=1)        # (B,)
+
+        def A(z):                                          # SPD matvec, measurement space
+            return sigma_y2 * z + jjt_coeff * Jv(Jt(z))
+
+        # batched conjugate gradient (independent SPD system per particle)
+        z = torch.zeros_like(b)
+        r = b.clone()
+        p = r.clone()
+        rs = bdot(r, r)
+        b_norm = bdot(b, b).clamp_min(1e-30).sqrt()
+        for _ in range(int(cg_iters)):
+            Ap = A(p)
+            denom = bdot(p, Ap).clamp_min(1e-30)
+            alpha = (rs / denom).view(-1, 1, 1)
+            z = z + alpha * p
+            r = r - alpha * Ap
+            rs_new = bdot(r, r)
+            beta = (rs_new / rs.clamp_min(1e-30)).view(-1, 1, 1)
+            p = r + beta * p
+            rs = rs_new
+        rel_res = float((rs.sqrt() / b_norm).mean())
+        g = Jt(z).detach()                                 # J^T z, physical state space
+    return g, rel_res
+
+
+# --------------------------------------------------------------------------- #
 # Hutchinson trace estimate of the likelihood Laplacian  Tr(Hessian mu_y)      #
 # --------------------------------------------------------------------------- #
 def hutchinson_laplacian(grad_fn, w0, M, eps, generator=None):

@@ -35,6 +35,7 @@ class AFDPSNavierStokes2d(ForwardNavierStokes2d):
                  grad_smooth_M=1,             # randomized smoothing: average the adjoint over M perturbed solves (1 = off)
                  grad_smooth_eps=0.0,         # perturbation std (physical units) for randomized smoothing
                  grad_lowpass_frac=None,      # spectral low-pass cutoff as a fraction of Nyquist (None = off)
+                 pigdm_chunk=8,               # particles per CG sub-solve for guidance_mode='full' (2nd-order graph -> keep small)
                  **kwargs):
         # Force fixed dt: a fixed-length differentiable trajectory is required for
         # the adjoint. Default to non-adaptive even if the config forgets.
@@ -52,6 +53,7 @@ class AFDPSNavierStokes2d(ForwardNavierStokes2d):
         self.grad_smooth_eps = grad_smooth_eps
         self.grad_lowpass_frac = grad_lowpass_frac
         self._lowpass_mask = None
+        self.pigdm_chunk = pigdm_chunk  # particles per CG sub-solve (full PiGDM; 2nd-order graph -> keep small)
         # observation stashed by the algorithm before sampling (laplacian gets no y arg)
         self._y = None
 
@@ -129,6 +131,52 @@ class AFDPSNavierStokes2d(ForwardNavierStokes2d):
             r = A.downsample(wT, self.downsample_factor) - y_phys
             out[sl] = 0.5 * r.pow(2).flatten(start_dim=1).sum(dim=1) / (sigma_eff ** 2)
         return out
+
+    # ----- mean eigenvalue of J J^T (J-aware / isotropic-PiGDM guidance) -----
+    def jacobian_trace(self, x, trace_M=1):
+        """Ensemble-mean lambda_bar = tr(J J^T)/n_meas for J = d(P L(unnorm_scale x))/dx,
+        in NORMALIZED-x units (so it is directly comparable to gamma^2: the guidance
+        denominator becomes sigma_y^2 + sigma(t)^2 * lambda_bar). The chain rule x -> omega0
+        contributes a factor unnorm_scale^2 on top of the physical trace. Returns a Python
+        float. One forward solve + trace_M VJP backprops per chunk (chunked like the
+        gradient to bound memory)."""
+        total, count = 0.0, 0
+        for sl in torch.split(torch.arange(x.shape[0]), self.grad_chunk):
+            w0 = self.unnormalize(x[sl]).squeeze(1)              # physical vorticity
+            lam = A.jac_mean_eig(self.solver, w0, self.force, self.forward_time,
+                                 self.Re, self.delta_t, self.downsample_factor, M=trace_M)
+            total += ((self.unnorm_scale ** 2) * lam).sum().item()
+            count += w0.shape[0]
+        return total / max(count, 1)
+
+    # ----- full anisotropic PiGDM guidance (the principled Bayesian guidance, no gamma) -----
+    def likelihood_gradient_pigdm(self, x, y, sigma_y, sigma_t, cg_iters=5, pigdm_scale=1.0, return_diag=False):
+        """PiGDM guidance for normalized x: g = scale * J^T (sigma_y^2 I + sigma_t^2 J J^T)^{-1}(P L - y),
+        solved matrix-free by CG in measurement space. Returns (B,1,res,res), same +grad sign /
+        units as likelihood_gradient (x->omega0 chain-rule via unnorm_scale applied once).
+        sigma_t = diffusion noise level (normalized-x units); the J J^T weight is propagated to
+        physical units by unnorm_scale^2. There is NO guidance_gamma here: the guidance is fully
+        determined by the known measurement noise sigma_y and the schedule sigma_t (gamma == 1).
+        pigdm_scale is a SINGLE GLOBAL magnitude calibration (the PiGDM gradient is the matrix-inverse
+        solution, whose scale differs from the fixed-mode 1/r_t^2 gradient the SDE drift coefficient
+        2 s^2 sigma' sigma was tuned for; default 1.0). Chunked by pigdm_chunk (CG holds a 2nd-order graph).
+        With return_diag, also returns the mean CG relative residual for convergence monitoring."""
+        sy2 = max(float(sigma_y), self.sigma_floor) ** 2
+        jjt = (float(sigma_t) * self.unnorm_scale) ** 2
+        y_phys = y.squeeze(1)
+        g = torch.empty_like(x)
+        rels = []
+        chunk = max(1, int(self.pigdm_chunk))
+        for sl in torch.split(torch.arange(x.shape[0]), chunk):
+            w0 = self.unnormalize(x[sl]).squeeze(1)
+            gp, rel = A.pigdm_gradient(self.solver, w0, self.force, self.forward_time, self.Re,
+                                       self.delta_t, y_phys, self.downsample_factor, sy2, jjt,
+                                       cg_iters=cg_iters)
+            g[sl] = (float(pigdm_scale) * self.unnorm_scale * gp).unsqueeze(1)   # chain rule x -> omega0
+            rels.append(rel)
+        if return_diag:
+            return g, (sum(rels) / max(len(rels), 1))
+        return g
 
     # ----- Hutchinson trace estimate of the likelihood Laplacian -----
     def likelihood_laplacian(self, x, sigma, g0=None):

@@ -11,9 +11,19 @@ method:
   scaling: none
   mode: sde
   likelihood_at: denoised  # evaluate likelihood at the Tweedie estimate (required for nonlinear NS)
-  guidance_gamma: 1.0      # annealed-guidance strength; smaller -> stronger/earlier data fit. Per-ds (gamma~10/ds): ds2=5.5, ds4=2.1*, ds8=0.65* -- override on the CLI. (*ds4/ds8 provisional, pending n=10 confirm)
+  guidance_gamma: 1.0      # annealed-guidance strength; smaller -> stronger/earlier data fit. Per-ds (gamma~10/ds), sigma=2-tuned n=10: ds2=4.8, ds4=1.8, ds8=0.65 -- override on the CLI.
   prior: diffusion         # 'diffusion' (ns-5m.pt) | 'gaussian' (analytic GRF, Track A only)
   reduce: best             # 'best' | 'mean' | 'topk' (how the ensemble collapses to samples)
   sampler_kwargs:
     resample: false            # AFDPS Algorithm 1 ESS resampling (paper skips it); enable to restore
     resample_threshold: 0.5    # c in (0,1): resample when normalized ESS < c
+    guidance_mode: fixed       # 'fixed' = use guidance_gamma (default, byte-identical). 'auto' =
+                               #   J-aware isotropic PiGDM: ignore gamma, set guidance from the
+                               #   measured Jacobian trace lambda_bar=tr(JJ^T)/n_meas. Tests the
+                               #   mentor's 'no need to rescale gamma' (sqrt(lambda_bar) ~ 10/ds?).
+                               # 'full' = anisotropic PiGDM: g=J^T(sigma_y^2 I+sigma_t^2 JJ^T)^-1(PL-y)
+                               #   via measurement-space CG (gamma ignored, =1; the Bayesian ideal).
+    trace_M: 1                 # Hutchinson VJP probes per lambda_bar estimate ('auto')
+    trace_every: 10            # amortization: recompute lambda_bar every N steps ('auto')
+    trace_dense_until: 40      # ...but recompute every step for the first N (high-sigma) steps ('auto')
+    cg_iters: 30               # CG iterations for guidance_mode='full' (30 -> rel_residual~1e-3 at ds8 s2; raise if logged residual high)

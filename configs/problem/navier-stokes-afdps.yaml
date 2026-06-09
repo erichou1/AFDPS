@@ -14,6 +14,7 @@ model:
   hutchinson_eps: 1.0e-3
   hutchinson_scheme: central   # 'central' (O(eps^2), 2M solves) | 'forward' (O(eps), M solves, reuses drift grad)
   grad_chunk: 16        # particles per adjoint sub-solve; raise on GPU to fill the device (memory-bound)
+  pigdm_chunk: 8        # particles per CG sub-solve for guidance_mode='full' (2nd-order graph; raise on GPU to fill device)
   sigma_floor: 1.0e-3   # floor for measurement noise sigma (avoids 1/sigma^2 blow-up at sigma=0)
   adjoint_mode: autodiff   # 'autodiff' (discrete adjoint) | 'continuous' (mentor's PDE, O(dt) check)
   init_mode: zeros
