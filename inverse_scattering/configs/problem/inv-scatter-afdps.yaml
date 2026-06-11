@@ -1,0 +1,26 @@
+# AFDPS forward-operator config for linear inverse scattering.
+#
+# Inherits the upstream InverseBench problem config `inv-scatter` (from
+# ../navier_stokes/configs/problem/, via the searchpath) so the PHYSICS are
+# single-sourced -- grid, Green's functions, receiver/transmitter counts, noise
+# level, normalization, dataset and evaluator are exactly the benchmark's. We only
+# swap the operator class for the AFDPS-aware subclass (which ADDS the sampler API
+# and never overrides forward/__call__/loss/normalize, so observation generation
+# stays identical) and add the AFDPS-specific operator knobs.
+#
+# Sweep the receiver count to reproduce Table 3's 360 / 180 / 60 columns:
+#   python main.py problem=inverse-scatter-afdps problem.model.numRec=180 ...
+defaults:
+  - inv-scatter   # upstream benchmark problem (physics, data, evaluator)
+  - _self_
+
+name: inverse-scatter-afdps
+
+model:
+  _target_: inverse_problems.inverse_scatter_afdps.AFDPSInverseScatter
+  # physics (Lx, Ly, Nx, Ny, wave, numRec, numTrans, sensorRadius, sigma_noise,
+  # unnorm_shift, unnorm_scale) are inherited from inv-scatter; AFDPS knobs only:
+  init_mode: noise      # 'noise' (x0 ~ sigma_max N(0,I)) | 'pinv' (seed from A^+ y~)
+  sigma_floor: 1.0e-8   # floor on the folded effective noise std (avoids 1/sigma^2 blow-up)
+
+exp_dir: exps/inference/inverse-scatter-afdps

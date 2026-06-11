@@ -1,0 +1,39 @@
+# AFDPS algorithm config for linear inverse scattering.
+#
+# PRIMARY configuration (see plan "Review revisions"): exact anisotropic PiGDM
+# guidance integrated EXACTLY each step (guidance_step=exact_linear), with the
+# weighted ENSEMBLE MEAN as the reported estimator -- Table 3 is a PSNR/SSIM
+# (point-estimate) leaderboard whose leaders are posterior-mean estimators.
+#
+# For the paper-faithful AFDPS-SDE ablation, override on the CLI:
+#   algorithm.method.sampler_kwargs.guidance_mode=fixed \
+#   algorithm.method.sampler_kwargs.guidance_step=euler \
+#   algorithm.method.guidance_gamma=<g> algorithm.method.reduce=best
+name: AFDPS
+method:
+  _target_: algo.afdps_scatter.AFDPSScatter
+  num_particles: 512       # ensemble size (batched on the GPU; raise to fill the device)
+  num_steps: 200           # annealed-SDE / diffusion steps
+  sigma_min: 0.002
+  sigma_max: 80.0
+  rho: 7                   # EDM time-discretization exponent
+  discretization: edm
+  schedule: linear
+  scaling: none
+  mode: sde
+  likelihood_at: noisy     # linear forward never diverges -> exact & paper-faithful
+  guidance_gamma: 1.0      # only used by guidance_mode=fixed (ablation)
+  reduce: mean             # 'mean' = Table-3 number | 'best'/'topk' = posterior-sample draws
+  sampler_kwargs:
+    guidance_mode: full          # 'full' = exact anisotropic PiGDM (primary) | 'auto' (isotropic, gamma_e^2=lambda_bar) | 'fixed'
+    guidance_step: exact_linear  # 'exact_linear' = exact guidance integration (primary) | 'euler' (faithful AFDPS-SDE)
+    use_value: true              # add the annealed misfit value to the Feynman-Kac weight
+    value_coef: exact            # 'exact' kappa(t)=2 gamma_e^2 t / r_t^2 | 't0' (NS heuristic)
+    resample: false              # AFDPS Algorithm 1 ESS resampling (opt-in)
+    resample_threshold: 0.5
+    trace_M: 1                   # exact lambda_bar needs no probes; kept for API parity
+    trace_every: 10
+    trace_dense_until: 40
+    cg_iters: 0                  # PiGDM is closed-form via the SVD here (no CG)
+    pigdm_scale: 1.0
+    progress: true

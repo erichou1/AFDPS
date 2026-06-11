@@ -1,0 +1,31 @@
+# AFDPS on the InverseBench LINEAR inverse-scattering problem.
+#
+# This config reuses the upstream InverseBench harness from the sibling
+# navier_stokes/ tree (dataset loader, EDM prior architecture, evaluator) via a
+# Hydra searchpath, so the benchmark is byte-for-byte the same and AFDPS results
+# sit directly next to Table 3. Only the AFDPS operator/algorithm and their configs
+# are new and live under inverse_scattering/.
+#
+# Run order (always from the inverse_scattering/ directory):
+#   python main.py problem=inverse-scatter-afdps algorithm=afdps pretrain=inv-scatter \
+#       num_samples=1 wandb=false
+tf32: True
+inference: True    # If False, skip inference and only evaluate the results
+num_samples: 1     # Number of posterior samples to generate per observation
+compile: False     # If True, enable torch.compile
+seed: 0            # Random seed (offset per global case id in main.py)
+wandb: False       # If True, log to wandb
+exp_name: default  # Name of the experiment
+
+defaults:
+  - _self_
+  - pretrain: inv-scatter            # reused from ../navier_stokes/configs (searchpath)
+  - problem: inv-scatter-afdps       # local (configs/problem/)
+  - algorithm: afdps                 # local (configs/algorithm/)
+
+# Merge the upstream InverseBench config tree so we never duplicate the benchmark
+# physics / prior / evaluator. Relative to the CWD, which main.py pins to the
+# inverse_scattering/ directory before composition.
+hydra:
+  searchpath:
+    - file://../navier_stokes/configs
