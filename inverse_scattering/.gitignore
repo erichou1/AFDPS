@@ -1,0 +1,16 @@
+# Build / run artifacts (not source)
+.venv/
+__pycache__/
+*.pyc
+cache/
+exps/
+checkpoints/
+outputs/
+*.csv
+
+# Reference material (large / third-party / not our code) -- kept locally only
+TMLR_Rebuttal-main/
+6054_Solving_Inverse_Problems_.pdf
+9220_InverseBench_Benchmarking.pdf
+# (SETUP_GUIDE.pdf is intentionally tracked)
+
