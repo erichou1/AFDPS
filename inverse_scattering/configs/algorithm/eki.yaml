@@ -1,0 +1,17 @@
+# EKI algorithm config for the inverse scattering problem.
+#
+# Ensemble Kalman Inversion: GRF-prior particle initialization, iterative
+# Kalman updates driven by the batched forward operator.  No diffusion model
+# is used during inference (the pretrained net is loaded only for its
+# img_channels / img_resolution attributes).
+#
+# Run:
+#   python main.py problem=inv-scatter-batch algorithm=eki pretrain=inv-scatter \
+#       num_samples=1 wandb=false
+name: EKI
+method:
+  _target_: algo.eki_scatter.EKIScatter
+  guidance_scale: 1.0
+  num_updates: 500
+  num_samples: 512
+  init_std: 0.5

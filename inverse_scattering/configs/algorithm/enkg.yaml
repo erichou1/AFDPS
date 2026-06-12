@@ -1,0 +1,22 @@
+# EnKG algorithm config for the inverse scattering problem.
+#
+# Ensemble Kalman Diffusion Guidance: ODE-denoised x_0 estimates drive a
+# Kalman update on noisy particles.  Uses the pretrained EDM prior for
+# denoising and the batched forward operator for measurements.
+#
+# Run:
+#   python main.py problem=inv-scatter-batch algorithm=enkg pretrain=inv-scatter \
+#       num_samples=1 wandb=false
+name: EnKG
+method:
+  _target_: algo.enkg_scatter.EnKGScatter
+  guidance_scale: 2.0
+  num_updates: 2
+  num_steps: 80
+  num_samples: 1024
+  sigma_max: 80.0
+  sigma_min: 0.002
+  threshold: 0.1
+  batch_size: 128
+  rho: 7
+  factor: 8

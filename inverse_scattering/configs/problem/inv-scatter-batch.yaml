@@ -1,0 +1,23 @@
+# Shared forward-operator config for EKI / EnKG on inverse scattering.
+#
+# Inherits the upstream InverseBench problem config ``inv-scatter`` (physics,
+# data, evaluator) and swaps the operator class for ``BatchInverseScatter``
+# which provides a *batched* forward via the cached SVD matrix A.
+# The forward map is mathematically identical to the base ``InverseScatter``
+# (same A matrix, same normalization, same noise model), just vectorized
+# over the batch dimension so EKI/EnKG can pass all particles at once.
+#
+# Sweep the receiver count to reproduce Table 3's 360 / 180 / 60 columns:
+#   python main.py problem=inv-scatter-batch algorithm=eki pretrain=inv-scatter \
+#       num_samples=1 wandb=false problem.model.numRec=180
+defaults:
+  - inv-scatter       # upstream benchmark problem (physics, data, evaluator)
+  - _self_
+
+name: inverse-scatter-batch
+
+model:
+  _target_: inverse_problems.inverse_scatter_batch.BatchInverseScatter
+  svd: true
+
+exp_dir: exps/inference/inverse-scatter

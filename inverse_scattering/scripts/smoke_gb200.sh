@@ -56,8 +56,18 @@ from algo.afdps_scatter import AFDPSScatter
 dev = 'cuda' if torch.cuda.is_available() else 'cpu'
 op = AFDPSInverseScatter(Nx=128, Ny=128, numRec=360, numTrans=20, sigma_noise=1e-4,
                          unnorm_shift=1.0, unnorm_scale=0.5, device=dev, svd=True)
-with open('checkpoints/inv-scatter-5m.pt', 'rb') as f:
-    net = pickle.load(f)['ema'].to(dev).eval()
+try:
+    with open('checkpoints/inv-scatter-5m.pt', 'rb') as f:
+        net = pickle.load(f)['ema'].to(dev).eval()
+except Exception:
+    from hydra.utils import instantiate
+    from hydra import initialize_config_dir, compose
+    with initialize_config_dir(config_dir=os.path.abspath('configs'), version_base='1.3'):
+        cfg = compose(config_name='config')
+    net = instantiate(cfg.pretrain.model)
+    ck = torch.load('checkpoints/inv-scatter-5m.pt', map_location=dev, weights_only=False)
+    net.load_state_dict(ck['ema'] if 'ema' in ck else ck['net'])
+    net = net.to(dev).eval()
 torch.manual_seed(0)
 obs = op.forward(2*torch.rand(1,1,128,128,device=dev)-1, unnormalize=True)
 for J in (512, 1024, 2048):

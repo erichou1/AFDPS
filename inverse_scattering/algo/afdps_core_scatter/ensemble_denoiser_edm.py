@@ -69,7 +69,9 @@ class Ensemble_Denoiser_EDM(_BaseSampler):
             else:  # 'auto' or 'full' -> use the measured (exact, free) Jacobian trace
                 if (self._lambda_bar is None) or (i < self.trace_dense_until) or (i % self.trace_every == 0):
                     self._lambda_bar = float(operator.jacobian_trace(x_eval, trace_M=self.trace_M))
-                gamma_e2 = self._lambda_bar
+                gamma_e2 = float(self.guidance_gamma) ** 2 * self._lambda_bar
+                if i == 0:
+                    print(f"[DIAG] lambda_bar={self._lambda_bar:.6e}  gamma={self.guidance_gamma}  gamma_e2={gamma_e2:.6e}")
             r_t = (sigma_y ** 2 + gamma_e2 * (sigma_t ** 2)) ** 0.5
 
             # ---- Feynman-Kac weight terms: isotropic gradient + exact Laplacian ----
