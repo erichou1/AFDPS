@@ -1,13 +1,36 @@
-**/__pycache__/**
+# Git
+.git/
+
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project artifacts
 debug*
-exps
-results
-wandb
-outputs
-.vscode
-checkpoints
-data
-figs
+exps/
+results/
+wandb/
+outputs/
+checkpoints/
+data/
+figs/
+cache/
+logs/
 *.ipynb
-cache
-.venv
+
+# OS
+.DS_Store
+Thumbs.db
