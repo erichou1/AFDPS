@@ -1,0 +1,9 @@
+# Vendored third-party reference material: the original pnpdm "TMLR_Rebuttal-main"
+# repo plus the AFDPS / InverseBench conference PDFs. These are studied as a reference
+# for this port but are NOT part of it -- they are ~240 MB and include copyrighted
+# papers and someone else's codebase, so they are kept out of git and live locally only.
+TMLR_Rebuttal-main/
+
+# Python caches / bytecode
+__pycache__/
+*.pyc

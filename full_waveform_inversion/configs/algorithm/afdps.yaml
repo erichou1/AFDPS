@@ -1,0 +1,28 @@
+# AFDPS algorithm config for full waveform inversion.
+# Drives the vendored annealed-SDE Feynman-Kac ensemble sampler (afdps_fwi/sampler.py) via the
+# afdps_fwi.algo.AFDPS wrapper. Defaults are a sane FWI starting point; the TUNING knobs flagged
+# below are what to sweep (see scripts/run_val_sweep-style overrides and the report).
+name: AFDPS
+method:
+  _target_: afdps_fwi.algo.AFDPS
+  num_particles: 16        # ensemble size (batched reduction; Devito adjoint loops particles). Raise on GB200.
+  num_steps: 200           # annealed-SDE / diffusion steps (FWI is solver-bound, so steps cost real solves)
+  sigma_min: 0.002
+  sigma_max: 80.0          # clamped to the FWI prior net's sigma_max internally
+  rho: 7                   # EDM time-discretization exponent
+  discretization: edm
+  schedule: linear
+  scaling: none
+  mode: sde                # AFDPS-SDE (Algorithm 2)
+  likelihood_at: denoised  # CFL guard #1: evaluate the wave solver at the smooth Tweedie estimate (REQUIRED for FWI)
+  guidance_gamma: 1.0      # annealed-guidance strength (smaller -> stronger/earlier data fit). TUNE.
+  reduce: best             # 'best' (top-weight MAP particle) | 'mean' (FK posterior mean) | 'topk'
+  sampler_kwargs:
+    resample: false            # AFDPS Algorithm 1 ESS resampling (paper default off). TUNE on/off.
+    resample_threshold: 0.5    # c in (0,1): resample when normalized ESS < c
+    use_value: false           # add mu_y(x) to the FK log-weight (TMLR refinement; score particles by real misfit). TUNE.
+    guidance_mode: fixed       # 'fixed' = use guidance_gamma (default). 'auto' = J-aware (needs the gn adjoint path).
+                               # 'full' (anisotropic PiGDM) is NOT supported for the Devito FWI operator.
+    trace_M: 1                 # Hutchinson probes per lambda_bar estimate ('auto' guidance only)
+    trace_every: 10            # amortization: recompute lambda_bar every N steps ('auto' only)
+    trace_dense_until: 20      # ...but every step for the first N high-sigma steps ('auto' only)

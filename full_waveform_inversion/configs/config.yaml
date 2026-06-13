@@ -1,0 +1,15 @@
+# Top-level Hydra config for the AFDPS x InverseBench full waveform inversion port.
+# Mirrors navier_stokes/configs/config.yaml; only the default problem/algorithm/pretrain
+# groups differ (FWI + AFDPS).
+tf32: True
+inference: True    # If False, skip inference and only (re)evaluate saved results
+num_samples: 1     # Number of reconstructions to return per observation (AFDPS: top-weight particle)
+compile: False     # If True, torch.compile the prior net (recommended for the ensemble sampler)
+seed: 0            # Random seed (per-case reseeding makes sharding bit-for-bit reproducible)
+wandb: False       # If True, log to wandb
+exp_name: default  # Name of the experiment (sub-directory under <exp_dir>/AFDPS/)
+defaults:
+  - _self_
+  - pretrain: fwi
+  - problem: fwi-afdps
+  - algorithm: afdps

@@ -1,0 +1,63 @@
+# InverseBench full waveform inversion, wired for AFDPS.
+#
+# The forward model / geometry / solver / dataset / normalization / evaluator are IDENTICAL
+# to the benchmark config (navier_stokes/configs/problem/fwi.yaml) so the comparison against
+# Table 7 stays apples-to-apples. Only two things change:
+#   (1) model._target_ -> the AFDPS operator subclass (adds the sampler's operator API);
+#   (2) evaluator.data_misfit -> true, so the Table-7 "Data misfit" column is reported.
+#
+# Benchmark settings (InverseBench App. B.4, verified): 128x128 mesh, 2.54km x 1.27km domain,
+# 20m x 10m spacing, dt=1.0ms (CFL), 5Hz Ricker (f0=0.005), 1s record (tn=1000ms), nbl=80,
+# 16 sources @ 1270m depth, 129 receivers @ 10m depth, NOISE-FREE, CurveFaultB 10-case test set.
+name: fwi-afdps
+prior: checkpoints/fwi-5m.pt
+
+model:
+  _target_: afdps_fwi.operator.AFDPSAcousticWave
+  # ---- benchmark forward-model settings (unchanged from fwi.yaml) ----
+  shape: [128, 128]
+  spacing: [20.0, 10.0]
+  tn: 1000.0
+  f0: 0.005
+  dt: 1.0
+  nbl: 80
+  nshots: 16
+  nreceivers: 129
+  src_depth: 1270.0
+  unnorm_scale: 1.0      # v_kms = (x + unnorm_shift) * unnorm_scale
+  unnorm_shift: 3.0
+  # ---- AFDPS likelihood-temperature (noise-free benchmark) ----
+  # sigma_y is NOT a physical noise level here; it is the likelihood temperature, the dominant
+  # FWI knob (paper search range [1e-2, 1e1]). Sweep this first. The sampler further tempers it
+  # via r_t = sqrt(sigma_y^2 + (gamma*sigma_t)^2).
+  sigma_noise: 1.0
+  sigma_floor: 1.0e-3
+  # ---- AFDPS Laplacian (Tr Hessian) estimator ----
+  laplacian_mode: fd_divergence   # 'fd_divergence' (default, exact trace, reuses parent grad)
+                                  # 'gn_hutchinson' (Gauss-Newton ||J||_F^2, PSD/cheaper, validate on-device)
+                                  # 'zero' (drop the FK curvature term; ablation)
+  hutchinson_M: 1                 # # stochastic trace probes
+  hutchinson_eps: 1.0e-3          # finite-difference step (normalized-velocity units)
+  hutchinson_scheme: forward      # 'forward' (reuse drift g0, 1 solve/probe) | 'central' (2 solves/probe)
+  grad_chunk: 1                   # particles per gradient pass (Devito adjoint is per-particle; shots run via dask)
+  # ---- CFL stability guard ----
+  vel_min_kms: 1.5                # clamp physical velocity to the CurveFaultB range before every solve
+  vel_max_kms: 4.5
+  init_mode: zeros                # constant-background seed (fair vs the un-daggered PnP-diffusion baselines)
+
+data:
+  _target_: training.dataset.LMDBData
+  root: ../data/fwi-test
+  resolution: 128
+  raw_resolution: 70
+  std: 500.0
+  mean: 3000.0
+  id_list: 1-10                   # the 10 InverseBench FWI test cases (shard via this knob)
+# after normalization the velocity is in ~[-1.5, 1.5]; unnormalize -> [1.5, 4.5] km/s
+
+evaluator:
+  _target_: eval.AcousticWave
+  data_misfit: true               # report the Table-7 "Data misfit" column
+
+# results land under full_waveform_inversion/results/ (runs execute with cwd=navier_stokes/)
+exp_dir: ../full_waveform_inversion/results/fwi-afdps
