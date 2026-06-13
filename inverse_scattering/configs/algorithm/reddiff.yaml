@@ -1,0 +1,8 @@
+name: REDDiff
+method:
+  _target_: algo.reddiff_scatter.REDDiff
+  num_steps: 1000
+  observation_weight: 1.0
+  base_lr: 2e-2
+  base_lambda: 0.25
+  lambda_scheduling_type: 'constant'
