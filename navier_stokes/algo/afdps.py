@@ -93,6 +93,11 @@ class AFDPS(Algo):
         lw = out['log_weights']                   # (J,)
         w = torch.softmax(lw, dim=0)
 
+        # Keep the full weighted ensemble around so callers can save it for
+        # uncertainty quantification; `recon` below collapses it to num_samples.
+        self.last_ensemble = ens.detach().cpu()
+        self.last_log_weights = lw.detach().cpu()
+
         if self.reduce == 'mean':
             recon = (w.view(-1, 1, 1, 1) * ens).sum(dim=0, keepdim=True)
             recon = recon.repeat(num_samples, 1, 1, 1)

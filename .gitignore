@@ -34,3 +34,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+.gstack/
+
+# Claude Code local state
+.claude/

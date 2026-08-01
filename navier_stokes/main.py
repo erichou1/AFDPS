@@ -101,7 +101,23 @@ def main(config):
         save_path = os.path.join(exp_dir, f'result_{data_id}.pt')
         if config.inference:
             # get the observation
-            observation = forward_op(data)
+            # An `observation_dir` (optional) caches y per case so that every algorithm
+            # is scored against a bit-identical measurement. The first run to reach a
+            # case writes it, later runs load it. Needed for side-by-side qualitative
+            # figures; leave unset (the default) to reproduce the per-algorithm tables.
+            obs_cache = config.problem.get('observation_dir', None)
+            obs_path = None
+            if obs_cache is not None:
+                os.makedirs(obs_cache, exist_ok=True)
+                obs_path = os.path.join(obs_cache, f'obs_{data_id}.pt')
+            if obs_path is not None and os.path.exists(obs_path):
+                observation = torch.load(obs_path, map_location=device)
+                logger.info(f"Loaded cached observation from {obs_path}.")
+            else:
+                observation = forward_op(data)
+                if obs_path is not None:
+                    torch.save(observation, obs_path)
+                    logger.info(f"Cached observation to {obs_path}.")
             target = data['target']
             # run the algorithm
             logger.info(f'Running inference on test sample {data_id}...')
@@ -113,6 +129,11 @@ def main(config):
                 'recon': forward_op.unnormalize(recon).cpu(),
                 'target': forward_op.unnormalize(target).cpu(),
             }
+            # Ensemble samplers expose their particles; save them (in physical units,
+            # like recon) so the posterior spread is available for UQ plots.
+            if getattr(algo, 'last_ensemble', None) is not None:
+                result_dict['ensemble'] = forward_op.unnormalize(algo.last_ensemble)
+                result_dict['log_weights'] = algo.last_log_weights
             torch.save(result_dict, save_path)
             logger.info(f"Saved results to {save_path}.")
         else:

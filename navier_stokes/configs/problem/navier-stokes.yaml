@@ -22,3 +22,7 @@ evaluator:
   _target_: eval.NavierStokes2d
 
 exp_dir: exps/inference/navier-stokes-ds2
+# Optional: cache/reuse the observation y per case so several algorithms can be
+# scored against a bit-identical measurement (used by figures/make_ns_figure.py).
+# null = generate y freshly per run, which is what the reported tables use.
+observation_dir: null
