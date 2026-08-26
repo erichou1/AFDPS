@@ -36,11 +36,15 @@ class AFDPSScatter(Algo):
                  mode='sde',
                  likelihood_at='noisy',       # linear forward never diverges -> 'noisy' is exact & paper-faithful
                  guidance_gamma=1.0,
-                 reduce='mean',               # 'mean' (Table-3 number) | 'best' | 'topk' (UQ draws)
+                 reduce='mean',               # 'mean' (Table-3 number) | 'uniform_mean' | 'best' | 'topk' (UQ draws)
+                 final_projection=False,      # post-hoc hard data consistency on measured V-modes
+                 projection_tau=1e-3,         # relative singular-value cutoff for the projection
                  sampler_kwargs=None):
         super().__init__(net, forward_op)
         self.num_particles = num_particles
         self.reduce = reduce
+        self.final_projection = bool(final_projection)
+        self.projection_tau = float(projection_tau)
         self.sampler = Ensemble_Denoiser_EDM(
             net=net, device=forward_op.device,
             num_steps=num_steps, sigma_min=sigma_min, sigma_max=sigma_max, rho=rho,
@@ -65,6 +69,18 @@ class AFDPSScatter(Algo):
         if self.reduce == 'mean':
             recon = (w.view(-1, 1, 1, 1) * ens).sum(dim=0, keepdim=True)
             recon = recon.repeat(num_samples, 1, 1, 1)
+        elif self.reduce == 'uniform_mean':
+            # Unweighted posterior-mean estimator: (1/J) sum_j x_j.
+            #
+            # WHY THIS EXISTS. The Feynman-Kac log-weights degenerate to ESS=1
+            # (measured top1-top2 gaps of 1e3-1e5 nats), so 'mean' silently returns
+            # a single particle -- a posterior SAMPLE. PSNR is an MSE metric whose
+            # optimal estimator is the posterior MEAN, and for a sample
+            #     E||x_sample - x*||^2 = bias^2 + sigma_p^2,
+            # versus for a J-average
+            #     E||x_bar - x*||^2   = bias^2 + sigma_p^2 / J.
+            # Discarding the degenerate weights recovers that variance term.
+            recon = ens.mean(dim=0, keepdim=True).repeat(num_samples, 1, 1, 1)
         else:  # 'best' / 'topk' -- posterior-sample draws
             order = torch.argsort(lw, descending=True)
             if num_samples <= ens.shape[0]:
@@ -72,4 +88,13 @@ class AFDPSScatter(Algo):
             else:
                 idx = torch.multinomial(w, num_samples, replacement=True)
                 recon = ens[idx]
+
+        if self.final_projection:
+            # Post-hoc DDNM-style range-space consistency: replace well-measured
+            # V-modes with their exact data values (see the operator docstring).
+            # Applied AFTER the reduction so the null-space content is whatever
+            # estimator was chosen above; removes the residual guidance bias on
+            # measured modes exactly, at zero PDE/network cost.
+            recon = op.data_consistent_projection(recon, rel_tau=self.projection_tau)
+
         return recon.to(torch.float32)

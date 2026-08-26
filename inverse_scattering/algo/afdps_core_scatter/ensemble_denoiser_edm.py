@@ -28,16 +28,28 @@ from algo.afdps_core.ensemble_denoiser_edm import Ensemble_Denoiser_EDM as _Base
 
 
 class Ensemble_Denoiser_EDM(_BaseSampler):
-    def __init__(self, *args, guidance_step='euler', value_coef='t0', **kwargs):
+    def __init__(self, *args, guidance_step='euler', value_coef='t0',
+                 weight_temper=1.0, **kwargs):
         """`guidance_step`: 'euler' (faithful AFDPS-SDE) | 'exact_linear' (exact guidance
         integration, the scattering primary). `value_coef`: 't0' (NS heuristic 1/t0) |
         'exact' (annealed kappa(t) = 2 gamma_e^2 t / r_t^2). All other arguments are
-        forwarded to the base sampler unchanged (schedule, guidance_mode, trace_*, ...)."""
+        forwarded to the base sampler unchanged (schedule, guidance_mode, trace_*, ...).
+
+        `weight_temper` (alpha in (0, 1]) scales the Feynman-Kac log-weight increment.
+        alpha=1.0 is the untempered default and reproduces every published number.
+        The measured log-weight increments here are O(1e3-1e5) nats per case, which
+        drives softmax(log_weight) to one-hot (ESS=1) within a few steps, so the
+        'weighted mean' degenerates to the single highest-weight particle. Tempering
+        flattens the weights WITHOUT the particle duplication that ESS resampling
+        causes. It changes only particle SELECTION, never the guidance dynamics."""
         super().__init__(*args, **kwargs)
         assert guidance_step in ('euler', 'exact_linear')
         assert value_coef in ('t0', 'exact')
+        weight_temper = float(weight_temper)
+        assert 0.0 < weight_temper <= 1.0, 'weight_temper must be in (0, 1]'
         self.guidance_step = guidance_step
         self.value_coef = value_coef
+        self.weight_temper = weight_temper
 
     @torch.no_grad()
     def __call__(self, gt, x_noisy, num_particles, operator, noiser, return_trajectory=False):
@@ -113,7 +125,7 @@ class Ensemble_Denoiser_EDM(_BaseSampler):
                 else:
                     kappa = 1.0 / float(self.t_steps[0])
                 reweight = reweight - kappa * value
-            log_weight = log_weight + (t_cur - t_next).to(torch.float64) * reweight
+            log_weight = log_weight + self.weight_temper * (t_cur - t_next).to(torch.float64) * reweight
 
             # ---- quarantine diverged particles; stabilize weights ----
             bad = ~torch.isfinite(x_track).flatten(1).all(dim=1)

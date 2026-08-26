@@ -224,6 +224,33 @@ class AFDPSInverseScatter(InverseScatter):
         dx = self._from_coeff(u_new - u)                    # (J,1,Ny,Nx) fp64
         return x + dx.to(x.dtype)
 
+    def data_consistent_projection(self, x, rel_tau=1e-3):
+        """Post-hoc hard data consistency on well-measured V-modes.
+
+        Replaces u_i = (V^T x)_i by the per-mode data value c_i = y~_U,i / s_i
+        wherever s_i >= rel_tau * max(S), leaving weak/null modes untouched.
+
+        WHY. The final exact_linear step contracts mode i by
+        sigma~^2 / (sigma~^2 + t_min^2 s_i^2), so modes with t_min*s_i ~ sigma~
+        keep O(1) leftover bias even though the data determines them to noise
+        level sigma~/s_i (tiny at sigma_y=1e-4). Replacing them removes that
+        bias EXACTLY (linear operator, closed-form SVD). This is the DDNM
+        range-space step applied on top of the ensemble's null-space fill: the
+        result agrees with the data on measured modes and with the diffusion
+        posterior on unmeasured ones. Noise amplification per replaced mode is
+        sigma~/s_i, bounded by sigma~/(rel_tau*max(S)).
+        """
+        assert self._yU is not None, "call set_observation() before projecting"
+        mask = (self._S >= float(rel_tau) * float(self._S.max()))
+        c = self._yU / self._S_safe                          # (k,) data value per mode
+        u = self._to_coeff(x)                                # (B, k) fp64
+        # DELTA form (mirrors exact_linear_substep): modify ONLY the masked
+        # V-modes and leave the orthogonal complement of span(V) untouched.
+        # k < n here (e.g. 14400 < 16384 at R=360), so reconstructing V u_new
+        # directly would zero the out-of-span component of x.
+        du = torch.where(mask.unsqueeze(0), c.unsqueeze(0) - u, torch.zeros_like(u))
+        return x + self._from_coeff(du).to(x.dtype)
+
     # ------------------------------------------------------------------ #
     # Ensemble init & top-noise perturbation (mirrors the NS port).       #
     # ------------------------------------------------------------------ #
