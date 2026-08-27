@@ -79,6 +79,13 @@ ARMS = {
     'guidance_auto':       {'sampler.guidance_mode': 'auto'},
     'init_pinv':           {'problem.init_mode': 'pinv'},
     'steps_400':           {'method.num_steps': 400},
+    # Stepsize tests MUST sit on top of the confirmed uniform-mean estimator.
+    # `steps_400` alone measures a finer stepsize under the degenerate
+    # single-particle reduction, which is no longer the configuration we report.
+    'umean_steps_400':     {'method.reduce': 'uniform_mean',
+                            'method.num_steps': 400},
+    'umean_steps_800':     {'method.reduce': 'uniform_mean',
+                            'method.num_steps': 800},
     # --- COMBINED: the only arms the error budget says can beat DDNM. ---
     'umean_denoised':      {'method.reduce': 'uniform_mean',
                             'method.likelihood_at': 'denoised'},
